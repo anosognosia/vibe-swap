@@ -2,8 +2,6 @@ package adapter
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +51,7 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 	if errSrc == nil && errDst == nil && canonicalSrc == canonicalDst {
 		// Source and destination point to the exact same physical folder, so copy is a no-op.
 		// But we still want to save the Keychain credential if applicable!
-		if err := w.saveKeychain(target, targetID, srcDir, destDir); err != nil {
+		if err := w.saveKeychain(target, targetID, destDir); err != nil {
 			return err
 		}
 		return nil
@@ -81,7 +79,7 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 	}
 
 	// Save Keychain credential if configured
-	if err := w.saveKeychain(target, targetID, srcDir, destDir); err != nil {
+	if err := w.saveKeychain(target, targetID, destDir); err != nil {
 		return err
 	}
 
@@ -111,7 +109,7 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 		activeProfile := state.Targets[targetID]
 		activeProfilePath, pathErr := w.getProfilePath(targetID, activeProfile)
 		if pathErr == nil {
-			if err := w.saveKeychain(target, targetID, activeProfilePath, activeProfilePath); err != nil {
+			if err := w.saveKeychain(target, targetID, activeProfilePath); err != nil {
 				return err
 			}
 		}
@@ -135,7 +133,7 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 				if _, backupStatErr := os.Stat(backupPath); os.IsNotExist(backupStatErr) {
 					_ = os.MkdirAll(backupPath, 0700)
 					_ = copyDir(defaultDir, backupPath)
-					_ = w.saveKeychain(target, targetID, defaultDir, backupPath)
+					_ = w.saveKeychain(target, targetID, backupPath)
 				}
 				// Create the initialization marker
 				_ = os.WriteFile(initMarker, []byte(""), 0600)
@@ -165,8 +163,8 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 	return nil
 }
 
-func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, sourceDir string, destDir string) error {
-	service := w.keychainService(target, targetID, sourceDir)
+func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, destDir string) error {
+	service := w.keychainService(target, targetID)
 	if service == "" {
 		return nil
 	}
@@ -199,7 +197,7 @@ func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, 
 }
 
 func (w *WrappedDirAdapter) loadKeychain(target config.Target, targetID string, profilePath string) error {
-	service := w.keychainService(target, targetID, profilePath)
+	service := w.keychainService(target, targetID)
 	if service == "" {
 		return nil
 	}
@@ -218,24 +216,12 @@ func (w *WrappedDirAdapter) loadKeychain(target config.Target, targetID string, 
 	return w.writeToKeychain(service, kv.Account, kv.Token)
 }
 
-func (w *WrappedDirAdapter) keychainService(target config.Target, targetID string, configDir string) string {
+func (w *WrappedDirAdapter) keychainService(target config.Target, targetID string) string {
 	service := target.Service
 	if service == "" && targetID == "claude_cli" {
 		service = "Claude Code-credentials"
 	}
-	if service == "" || targetID != "claude_cli" {
-		return service
-	}
-
-	configDir = strings.TrimRight(config.ExpandPath(configDir), string(os.PathSeparator))
-	defaultDir := strings.TrimRight(config.ExpandPath(target.Path), string(os.PathSeparator))
-
-	if configDir == defaultDir {
-		return service
-	}
-
-	sum := sha256.Sum256([]byte(configDir))
-	return service + "-" + hex.EncodeToString(sum[:])[:8]
+	return service
 }
 
 type keychainValue struct {

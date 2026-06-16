@@ -1,8 +1,6 @@
 package adapter
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -385,7 +383,7 @@ func TestWrappedDirAdapter(t *testing.T) {
 	}
 }
 
-func TestWrappedDirAdapterClaudeKeychainService(t *testing.T) {
+func TestWrappedDirAdapterClaudeUsesLiveKeychainService(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "vibeswap-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -397,15 +395,6 @@ func TestWrappedDirAdapterClaudeKeychainService(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	wa := &WrappedDirAdapter{}
-	defaultClaudeDir := filepath.Join(tmpDir, ".claude")
-	profileDir := filepath.Join(tmpDir, ".config", "vibeswap", "profiles", "claude_cli", "work")
-	if err := os.MkdirAll(defaultClaudeDir, 0700); err != nil {
-		t.Fatalf("failed to create default claude dir: %v", err)
-	}
-	if err := os.MkdirAll(profileDir, 0700); err != nil {
-		t.Fatalf("failed to create profile dir: %v", err)
-	}
-
 	target := config.Target{
 		Name:    "Claude Code CLI",
 		Type:    config.TypeWrappedDir,
@@ -415,15 +404,8 @@ func TestWrappedDirAdapterClaudeKeychainService(t *testing.T) {
 		Service: "Claude Code-credentials",
 	}
 
-	defaultService := wa.keychainService(target, "claude_cli", defaultClaudeDir)
-	if defaultService != "Claude Code-credentials" {
-		t.Fatalf("expected default service, got %q", defaultService)
-	}
-
-	sum := sha256.Sum256([]byte(profileDir))
-	expectedProfileService := "Claude Code-credentials-" + hex.EncodeToString(sum[:])[:8]
-	profileService := wa.keychainService(target, "claude_cli", profileDir)
-	if profileService != expectedProfileService {
-		t.Fatalf("expected profile service %q, got %q", expectedProfileService, profileService)
+	service := wa.keychainService(target, "claude_cli")
+	if service != "Claude Code-credentials" {
+		t.Fatalf("expected live Claude service, got %q", service)
 	}
 }

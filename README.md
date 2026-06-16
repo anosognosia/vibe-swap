@@ -15,7 +15,7 @@ It allows you to switch between accounts/tokens instantly while keeping your wor
 *   **Target Types**:
     *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`) and can also capture a related macOS Keychain item for tools that split auth across files and Keychain.
     *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
-    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) and handles Claude Code's profile-specific macOS Keychain entries.
+    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
     *   `keychain`: Swaps macOS Keychain generic password entries.
     *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Swaps rows inside VS Code-based state databases (e.g., Cursor, Windsurf).
 *   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
@@ -76,7 +76,7 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
 
 ### Notes on Claude Code and agy
 
-Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific configuration. On macOS, Claude Code stores credentials in Keychain under `Claude Code-credentials` for the default config directory and under a path-hashed service name for alternate config directories. VibeSwap handles that automatically for `wrapped_dir` targets.
+Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as settings, cache, projects, and history. On macOS, Claude Code reads OAuth credentials from the live Keychain item `Claude Code-credentials`, so VibeSwap stores a credential snapshot in each profile and writes the selected snapshot back to that live Keychain item when switching. This keeps account switching explicit while still allowing isolated Claude config directories.
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
