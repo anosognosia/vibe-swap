@@ -21,14 +21,14 @@ type Target struct {
 	Name         string     `json:"name"`
 	Type         TargetType `json:"type"`
 	Path         string     `json:"path,omitempty"`
-	Paths        []string   `json:"paths,omitempty"`        // For multiple files support
-	Key          string     `json:"key,omitempty"`          // For json_key type
-	Service      string     `json:"service,omitempty"`      // For keychain type
-	Account      string     `json:"account,omitempty"`      // For keychain type
+	Paths        []string   `json:"paths,omitempty"`         // For multiple files support
+	Key          string     `json:"key,omitempty"`           // For json_key type
+	Service      string     `json:"service,omitempty"`       // For keychain type
+	Account      string     `json:"account,omitempty"`       // For keychain type
 	FallbackFile string     `json:"fallback_file,omitempty"` // For keychain type fallback
-	Keys         []string   `json:"keys,omitempty"`         // For sqlite type (future)
-	EnvVar       string     `json:"env_var,omitempty"`      // For wrapped_dir type
-	Binary       string     `json:"binary,omitempty"`       // For wrapped_dir type
+	Keys         []string   `json:"keys,omitempty"`          // For sqlite type (future)
+	EnvVar       string     `json:"env_var,omitempty"`       // For wrapped_dir type
+	Binary       string     `json:"binary,omitempty"`        // For wrapped_dir type
 }
 
 type Config struct {
@@ -140,9 +140,13 @@ func GetDefaultConfig() *Config {
 				Key:  "oauth:tokenCache",
 			},
 			"agy": {
-				Name: "Antigravity CLI (agy)",
-				Type: TypeFile,
+				Name:    "Antigravity CLI (agy)",
+				Type:    TypeFile,
+				Service: "gemini",
+				Account: "antigravity",
 				Paths: []string{
+					"~/.gemini/antigravity-cli/antigravity-oauth-token",
+					"~/.gemini/antigravity-cli/settings.json",
 					"~/.gemini/oauth_creds.json",
 					"~/.gemini/google_accounts.json",
 				},

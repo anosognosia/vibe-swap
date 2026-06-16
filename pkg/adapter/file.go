@@ -14,7 +14,8 @@ import (
 type FileAdapter struct{}
 
 type MultiFileProfile struct {
-	Files map[string]string `json:"files"` // unexpanded path -> base64 content
+	Files    map[string]string `json:"files"`              // unexpanded path -> base64 content
+	Keychain *KeychainValue    `json:"keychain,omitempty"` // optional keychain credential for file-backed tools
 }
 
 func (f *FileAdapter) getProfilePath(targetID, profileName string) (string, error) {
@@ -75,9 +76,22 @@ func (f *FileAdapter) Save(target config.Target, targetID string, profileName st
 			expanded := config.ExpandPath(p)
 			data, err := os.ReadFile(expanded)
 			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
 				return fmt.Errorf("failed to read file %s: %v", p, err)
 			}
 			prof.Files[p] = base64.StdEncoding.EncodeToString(data)
+		}
+		if target.Service != "" {
+			kv, err := f.readKeychainValue(target)
+			if err != nil {
+				return fmt.Errorf("failed to read keychain item %s/%s: %v", target.Service, target.Account, err)
+			}
+			prof.Keychain = kv
+		}
+		if len(prof.Files) == 0 && prof.Keychain == nil {
+			return fmt.Errorf("no configured files exist to save for target %s", targetID)
 		}
 		data, err := json.MarshalIndent(prof, "", "  ")
 		if err != nil {
@@ -116,7 +130,7 @@ func (f *FileAdapter) Load(target config.Target, targetID string, profileName st
 
 	// Try to unmarshal as a MultiFileProfile first
 	var prof MultiFileProfile
-	if err := json.Unmarshal(data, &prof); err == nil && len(prof.Files) > 0 {
+	if err := json.Unmarshal(data, &prof); err == nil && (len(prof.Files) > 0 || prof.Keychain != nil) {
 		for p, b64Content := range prof.Files {
 			decoded, err := base64.StdEncoding.DecodeString(b64Content)
 			if err != nil {
@@ -128,6 +142,12 @@ func (f *FileAdapter) Load(target config.Target, targetID string, profileName st
 			}
 			if err := os.WriteFile(expanded, decoded, 0600); err != nil {
 				return fmt.Errorf("failed to write file %s: %v", p, err)
+			}
+		}
+		if target.Service != "" && prof.Keychain != nil {
+			ka := &KeychainAdapter{}
+			if err := ka.writeToKeychain(target.Service, prof.Keychain.Account, prof.Keychain.Token); err != nil {
+				return fmt.Errorf("failed to write keychain item %s/%s: %v", target.Service, prof.Keychain.Account, err)
 			}
 		}
 		return nil
@@ -149,17 +169,41 @@ func (f *FileAdapter) Load(target config.Target, targetID string, profileName st
 
 func (f *FileAdapter) IsInstalled(target config.Target) bool {
 	if len(target.Paths) > 0 {
-		for _, p := range target.Paths {
-			expanded := config.ExpandPath(p)
-			if _, err := os.Stat(expanded); err != nil {
-				return false
+		if target.Service != "" {
+			ka := &KeychainAdapter{}
+			if _, err := ka.readFromKeychainWithAccount(target.Service, target.Account); err == nil {
+				return true
 			}
 		}
-		return true
+		for _, p := range target.Paths {
+			expanded := config.ExpandPath(p)
+			if _, err := os.Stat(expanded); err == nil {
+				return true
+			}
+		}
+		return false
 	}
 	path := config.ExpandPath(target.Path)
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func (f *FileAdapter) readKeychainValue(target config.Target) (*KeychainValue, error) {
+	account := target.Account
+	if account == "" {
+		account = "default"
+	}
+
+	ka := &KeychainAdapter{}
+	token, err := ka.readFromKeychainWithAccount(target.Service, account)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KeychainValue{
+		Account: account,
+		Token:   token,
+	}, nil
 }
 
 func copyFile(src, dst string) error {

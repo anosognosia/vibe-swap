@@ -1,6 +1,8 @@
 package adapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -122,6 +124,45 @@ func TestFileAdapter(t *testing.T) {
 		}
 		if string(res2) != data2 {
 			t.Errorf("expected file2 to be %q, got %q", data2, string(res2))
+		}
+	})
+
+	t.Run("Multiple Files Skips Missing Optional Paths", func(t *testing.T) {
+		path1 := filepath.Join(tmpDir, "present.json")
+		missingPath := filepath.Join(tmpDir, "missing.json")
+		data1 := `{"id": "present"}`
+
+		_ = os.WriteFile(path1, []byte(data1), 0600)
+
+		target := config.Target{
+			Name:  "Mock Partial Multi Target",
+			Type:  config.TypeFile,
+			Paths: []string{missingPath, path1},
+		}
+
+		targetID := "mock_partial_multi_target"
+		profileName := "test_profile"
+
+		if !fa.IsInstalled(target) {
+			t.Error("expected target to be installed when at least one configured file exists")
+		}
+
+		if err := fa.Save(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to save partial multi-file profile: %v", err)
+		}
+
+		_ = os.WriteFile(path1, []byte(`{"id": "changed"}`), 0600)
+
+		if err := fa.Load(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to load partial multi-file profile: %v", err)
+		}
+
+		res1, _ := os.ReadFile(path1)
+		if string(res1) != data1 {
+			t.Errorf("expected present file to be %q, got %q", data1, string(res1))
+		}
+		if _, err := os.Stat(missingPath); !os.IsNotExist(err) {
+			t.Error("expected missing optional path to remain absent")
 		}
 	})
 
@@ -341,5 +382,52 @@ func TestWrappedDirAdapter(t *testing.T) {
 	}
 	if string(symlinkedData) != "token-v1" {
 		t.Errorf("expected token content via symlink to be %q, got %q", "token-v1", string(symlinkedData))
+	}
+}
+
+func TestWrappedDirAdapterClaudeKeychainService(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	wa := &WrappedDirAdapter{}
+	defaultClaudeDir := filepath.Join(tmpDir, ".claude")
+	profileDir := filepath.Join(tmpDir, ".config", "vibeswap", "profiles", "claude_cli", "work")
+	if err := os.MkdirAll(defaultClaudeDir, 0700); err != nil {
+		t.Fatalf("failed to create default claude dir: %v", err)
+	}
+	if err := os.MkdirAll(profileDir, 0700); err != nil {
+		t.Fatalf("failed to create profile dir: %v", err)
+	}
+
+	target := config.Target{
+		Name:    "Claude Code CLI",
+		Type:    config.TypeWrappedDir,
+		Path:    "~/.claude",
+		EnvVar:  "CLAUDE_CONFIG_DIR",
+		Binary:  "claude",
+		Service: "Claude Code-credentials",
+	}
+
+	defaultService := wa.keychainService(target, "claude_cli", defaultClaudeDir)
+	if defaultService != "Claude Code-credentials" {
+		t.Fatalf("expected default service, got %q", defaultService)
+	}
+
+	resolvedProfileDir, err := filepath.EvalSymlinks(profileDir)
+	if err != nil {
+		t.Fatalf("failed to resolve profile dir: %v", err)
+	}
+	sum := sha256.Sum256([]byte(resolvedProfileDir))
+	expectedProfileService := "Claude Code-credentials-" + hex.EncodeToString(sum[:])[:8]
+	profileService := wa.keychainService(target, "claude_cli", profileDir)
+	if profileService != expectedProfileService {
+		t.Fatalf("expected profile service %q, got %q", expectedProfileService, profileService)
 	}
 }

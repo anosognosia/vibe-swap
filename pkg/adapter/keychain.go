@@ -141,6 +141,24 @@ func (k *KeychainAdapter) readFromKeychain(service string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+func (k *KeychainAdapter) readFromKeychainWithAccount(service, account string) (string, error) {
+	args := []string{"find-generic-password", "-w", "-s", service}
+	if account != "" {
+		args = append(args, "-a", account)
+	}
+	cmd := exec.Command("security", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", errors.New(strings.TrimSpace(stderr.String()))
+	}
+
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 func (k *KeychainAdapter) writeToKeychain(service, account, token string) error {
 	// First delete existing entry (ignore failure)
 	deleteCmd := exec.Command("security", "delete-generic-password", "-s", service)

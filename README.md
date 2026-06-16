@@ -13,9 +13,9 @@ It allows you to switch between accounts/tokens instantly while keeping your wor
 *   **Zero-Dependency Compilation**: Built in Go using the Charm Bubble Tea framework. Starts up in <10ms with a tiny memory footprint.
 *   **Dual Mode**: Supports a modern interactive terminal user interface (TUI) and non-interactive command-line interface (CLI) commands.
 *   **Target Types**:
-    *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`, Antigravity `oauth_creds.json`).
+    *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`) and can also capture a related macOS Keychain item for tools that split auth across files and Keychain.
     *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
-    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`). Completely avoids macOS Keychain ACL issues.
+    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) and handles Claude Code's profile-specific macOS Keychain entries.
     *   `keychain`: Swaps macOS Keychain generic password entries.
     *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Swaps rows inside VS Code-based state databases (e.g., Cursor, Windsurf).
 *   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
@@ -46,10 +46,11 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
     },
     "claude_cli": {
       "name": "Claude Code CLI",
-      "type": "keychain",
-      "service": "Claude Code-credentials",
-      "account": "your_macos_username",
-      "fallback_file": "~/.claude/.credentials.json"
+      "type": "wrapped_dir",
+      "path": "~/.claude",
+      "env_var": "CLAUDE_CONFIG_DIR",
+      "binary": "claude",
+      "service": "Claude Code-credentials"
     },
     "claude_desktop": {
       "name": "Claude Desktop App",
@@ -60,7 +61,11 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
     "agy": {
       "name": "Antigravity CLI (agy)",
       "type": "file",
+      "service": "gemini",
+      "account": "antigravity",
       "paths": [
+        "~/.gemini/antigravity-cli/antigravity-oauth-token",
+        "~/.gemini/antigravity-cli/settings.json",
         "~/.gemini/oauth_creds.json",
         "~/.gemini/google_accounts.json"
       ]
@@ -68,7 +73,12 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
   }
 }
 ```
-```
+
+### Notes on Claude Code and agy
+
+Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific configuration. On macOS, Claude Code stores credentials in Keychain under `Claude Code-credentials` for the default config directory and under a path-hashed service name for alternate config directories. VibeSwap handles that automatically for `wrapped_dir` targets.
+
+Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
 ## Usage
 
