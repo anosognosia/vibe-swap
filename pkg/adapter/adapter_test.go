@@ -16,72 +16,114 @@ func TestFileAdapter(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Set home dir or bypass GetProfilesDir by mocking config paths if needed,
-	// but since we want to test FileAdapter's Save/Load:
-	// Let's create a custom FileAdapter and override profile paths?
-	// Actually, FileAdapter uses config.GetProfilesDir().
-	// We can set os.Setenv("HOME", tmpDir) to sandbox all paths!
 	oldHome := os.Getenv("HOME")
 	defer os.Setenv("HOME", oldHome)
 	os.Setenv("HOME", tmpDir)
 
-	// Create a mock source credential file
-	srcPath := filepath.Join(tmpDir, "credentials.json")
-	srcData := `{"token": "test-token-value"}`
-	if err := os.WriteFile(srcPath, []byte(srcData), 0600); err != nil {
-		t.Fatalf("failed to write mock credentials: %v", err)
-	}
-
-	target := config.Target{
-		Name: "Mock Target",
-		Type: config.TypeFile,
-		Path: srcPath,
-	}
-
 	fa := &FileAdapter{}
-	targetID := "mock_target"
-	profileName := "test_profile"
 
-	// 1. Check IsInstalled
-	if !fa.IsInstalled(target) {
-		t.Error("expected target to be installed")
-	}
+	// --- Test Single File ---
+	t.Run("Single File", func(t *testing.T) {
+		srcPath := filepath.Join(tmpDir, "credentials.json")
+		srcData := `{"token": "test-token-value"}`
+		if err := os.WriteFile(srcPath, []byte(srcData), 0600); err != nil {
+			t.Fatalf("failed to write mock credentials: %v", err)
+		}
 
-	// 2. Save profile
-	if err := fa.Save(target, targetID, profileName); err != nil {
-		t.Fatalf("failed to save profile: %v", err)
-	}
+		target := config.Target{
+			Name: "Mock Target",
+			Type: config.TypeFile,
+			Path: srcPath,
+		}
 
-	// Verify profile file exists and has same content
-	profilePath, err := fa.getProfilePath(targetID, profileName)
-	if err != nil {
-		t.Fatalf("failed to get profile path: %v", err)
-	}
-	profData, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("failed to read profile file: %v", err)
-	}
-	if string(profData) != srcData {
-		t.Errorf("expected profile content %q, got %q", srcData, string(profData))
-	}
+		targetID := "mock_target"
+		profileName := "test_profile"
 
-	// 3. Modify source file, then Load profile back to restore
-	newSrcData := `{"token": "different-token"}`
-	if err := os.WriteFile(srcPath, []byte(newSrcData), 0600); err != nil {
-		t.Fatalf("failed to write modified credentials: %v", err)
-	}
+		if !fa.IsInstalled(target) {
+			t.Error("expected target to be installed")
+		}
 
-	if err := fa.Load(target, targetID, profileName); err != nil {
-		t.Fatalf("failed to load profile: %v", err)
-	}
+		if err := fa.Save(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to save profile: %v", err)
+		}
 
-	restoredData, err := os.ReadFile(srcPath)
-	if err != nil {
-		t.Fatalf("failed to read restored credentials: %v", err)
-	}
-	if string(restoredData) != srcData {
-		t.Errorf("expected restored content %q, got %q", srcData, string(restoredData))
-	}
+		profilePath, err := fa.getProfilePath(targetID, profileName)
+		if err != nil {
+			t.Fatalf("failed to get profile path: %v", err)
+		}
+		profData, err := os.ReadFile(profilePath)
+		if err != nil {
+			t.Fatalf("failed to read profile file: %v", err)
+		}
+		if string(profData) != srcData {
+			t.Errorf("expected profile content %q, got %q", srcData, string(profData))
+		}
+
+		newSrcData := `{"token": "different-token"}`
+		if err := os.WriteFile(srcPath, []byte(newSrcData), 0600); err != nil {
+			t.Fatalf("failed to write modified credentials: %v", err)
+		}
+
+		if err := fa.Load(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to load profile: %v", err)
+		}
+
+		restoredData, err := os.ReadFile(srcPath)
+		if err != nil {
+			t.Fatalf("failed to read restored credentials: %v", err)
+		}
+		if string(restoredData) != srcData {
+			t.Errorf("expected restored content %q, got %q", srcData, string(restoredData))
+		}
+	})
+
+	// --- Test Multiple Files ---
+	t.Run("Multiple Files", func(t *testing.T) {
+		path1 := filepath.Join(tmpDir, "file1.json")
+		data1 := `{"id": "1"}`
+		path2 := filepath.Join(tmpDir, "file2.json")
+		data2 := `{"id": "2"}`
+
+		_ = os.WriteFile(path1, []byte(data1), 0600)
+		_ = os.WriteFile(path2, []byte(data2), 0600)
+
+		target := config.Target{
+			Name:  "Mock Multi Target",
+			Type:  config.TypeFile,
+			Paths: []string{path1, path2},
+		}
+
+		targetID := "mock_multi_target"
+		profileName := "test_profile"
+
+		if !fa.IsInstalled(target) {
+			t.Error("expected target to be installed")
+		}
+
+		if err := fa.Save(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to save profile: %v", err)
+		}
+
+		// Change files
+		_ = os.WriteFile(path1, []byte(`{"id": "different1"}`), 0600)
+		_ = os.WriteFile(path2, []byte(`{"id": "different2"}`), 0600)
+
+		// Restore profile
+		if err := fa.Load(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to load profile: %v", err)
+		}
+
+		// Verify files are restored
+		res1, _ := os.ReadFile(path1)
+		res2, _ := os.ReadFile(path2)
+
+		if string(res1) != data1 {
+			t.Errorf("expected file1 to be %q, got %q", data1, string(res1))
+		}
+		if string(res2) != data2 {
+			t.Errorf("expected file2 to be %q, got %q", data2, string(res2))
+		}
+	})
 }
 
 func TestJSONKeyAdapter(t *testing.T) {

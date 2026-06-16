@@ -20,6 +20,7 @@ type Target struct {
 	Name         string     `json:"name"`
 	Type         TargetType `json:"type"`
 	Path         string     `json:"path,omitempty"`
+	Paths        []string   `json:"paths,omitempty"`        // For multiple files support
 	Key          string     `json:"key,omitempty"`          // For json_key type
 	Service      string     `json:"service,omitempty"`      // For keychain type
 	Account      string     `json:"account,omitempty"`      // For keychain type
@@ -121,12 +122,15 @@ func GetDefaultConfig() *Config {
 				Type: TypeFile,
 				Path: "~/.codex/auth.json",
 			},
+			"codex_desktop": {
+				Name: "Codex Desktop App",
+				Type: TypeFile,
+				Path: "~/Library/Application Support/Codex/Default/Cookies",
+			},
 			"claude_cli": {
-				Name:         "Claude Code CLI",
-				Type:         TypeKeychain,
-				Service:      "Claude Code-credentials",
-				Account:      "edgarwongbaxter",
-				FallbackFile: "~/.claude/.credentials.json",
+				Name: "Claude Code CLI",
+				Type: TypeFile,
+				Path: "~/.claude/.credentials.json",
 			},
 			"claude_desktop": {
 				Name: "Claude Desktop App",
@@ -137,17 +141,10 @@ func GetDefaultConfig() *Config {
 			"agy": {
 				Name: "Antigravity CLI (agy)",
 				Type: TypeFile,
-				Path: "~/.gemini/oauth_creds.json",
-			},
-			"pi": {
-				Name: "Pi CLI",
-				Type: TypeFile,
-				Path: "~/.pi/agent/auth.json",
-			},
-			"opencode": {
-				Name: "OpenCode CLI",
-				Type: TypeFile,
-				Path: "~/.local/share/opencode/auth.json",
+				Paths: []string{
+					"~/.gemini/oauth_creds.json",
+					"~/.gemini/google_accounts.json",
+				},
 			},
 		},
 	}

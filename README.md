@@ -1,6 +1,6 @@
 # VibeSwap
 
-VibeSwap is a small, lightweight, and performant account and token switcher for AI vibe coding harnesses (Cursor, Windsurf, Claude Code, etc.) and coding CLIs (Codex, Pi, OpenCode, Antigravity/agy). 
+VibeSwap is a small, lightweight, and performant account and token switcher for AI vibe coding harnesses (Cursor, Windsurf, Claude Code, etc.) and coding CLIs (Codex, Antigravity/agy). 
 
 It allows you to switch between accounts/tokens instantly while keeping your workspace sessions, terminal states, and editor layouts intact.
 
@@ -9,7 +9,7 @@ It allows you to switch between accounts/tokens instantly while keeping your wor
 *   **Zero-Dependency Compilation**: Built in Go using the Charm Bubble Tea framework. Starts up in <10ms with a tiny memory footprint.
 *   **Dual Mode**: Supports a modern interactive terminal user interface (TUI) and non-interactive command-line interface (CLI) commands.
 *   **Target Types**:
-    *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`, Pi CLI `auth.json`, OpenCode CLI `auth.json`, Antigravity `oauth_creds.json`).
+    *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`, Codex Desktop App `Cookies`, Antigravity `oauth_creds.json`).
     *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
     *   `keychain`: Swaps macOS Keychain generic password entries (e.g., Claude Code `Claude Code-credentials`).
     *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Swaps rows inside VS Code-based state databases (e.g., Cursor, Windsurf).
@@ -39,6 +39,11 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "type": "file",
       "path": "~/.codex/auth.json"
     },
+    "codex_desktop": {
+      "name": "Codex Desktop App",
+      "type": "file",
+      "path": "~/Library/Application Support/Codex/Default/Cookies"
+    },
     "claude_cli": {
       "name": "Claude Code CLI",
       "type": "keychain",
@@ -56,19 +61,10 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "name": "Antigravity CLI (agy)",
       "type": "file",
       "path": "~/.gemini/oauth_creds.json"
-    },
-    "pi": {
-      "name": "Pi CLI",
-      "type": "file",
-      "path": "~/.pi/agent/auth.json"
-    },
-    "opencode": {
-      "name": "OpenCode CLI",
-      "type": "file",
-      "path": "~/.local/share/opencode/auth.json"
     }
   }
 }
+```
 ```
 
 ## Usage
