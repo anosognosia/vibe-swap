@@ -283,32 +283,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 var (
-	// Brand colors pulled from the logo: cup red, aqua ball, and warm white space.
+	// Brand colors pulled from the logo: red dominates, white highlights, aqua only for key interaction cues.
 	brandRedColor  = lipgloss.Color("#C91F26")
 	brandCyanColor = lipgloss.Color("#29AEDD")
-	creamColor     = lipgloss.Color("#F7F5F0")
-	inkColor       = lipgloss.Color("#24191A")
-	mutedColor     = lipgloss.Color("#8A7777")
-	borderColor    = lipgloss.Color("#E8D8D6")
+	whiteColor     = lipgloss.Color("#F7F5F0")
+	blackColor     = lipgloss.Color("#100B0C")
+	panelColor     = lipgloss.Color("#1A1113")
+	mutedColor     = lipgloss.Color("#7B6668")
+	borderColor    = lipgloss.Color("#4E2326")
 	successColor   = lipgloss.Color("#278A64")
 	redColor       = lipgloss.Color("#C91F26")
 
 	// Text Styles for rendering colored text
 	brandRedText  = lipgloss.NewStyle().Foreground(brandRedColor)
 	brandCyanText = lipgloss.NewStyle().Foreground(brandCyanColor)
+	whiteText     = lipgloss.NewStyle().Foreground(whiteColor)
 	greenText     = lipgloss.NewStyle().Foreground(successColor)
 	grayText      = lipgloss.NewStyle().Foreground(mutedColor)
 	redText       = lipgloss.NewStyle().Foreground(redColor)
 
 	appStyle = lipgloss.NewStyle().
 			Padding(1, 2).
-			Background(creamColor).
-			Foreground(inkColor)
+			Background(blackColor).
+			Foreground(whiteColor)
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(brandRedColor).
-			Padding(0, 1).
+			Foreground(whiteColor).
+			Background(brandRedColor).
+			Padding(0, 2).
 			MarginBottom(1)
 
 	headerStyle = lipgloss.NewStyle().
@@ -318,10 +321,12 @@ var (
 
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
+			Background(panelColor).
 			Padding(1)
 
 	mainPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
+			Background(panelColor).
 			Padding(1)
 
 	selectedItemStyle = lipgloss.NewStyle().
@@ -348,6 +353,7 @@ var (
 	inputModalStyle = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
 			BorderForeground(brandRedColor).
+			Background(panelColor).
 			Padding(1, 2).
 			Width(45).
 			Height(7).
@@ -358,7 +364,7 @@ func (m model) View() string {
 	var views []string
 
 	// Header
-	views = append(views, titleStyle.Render("VibeSwap "+brandCyanText.Render("●")))
+	views = append(views, titleStyle.Render("VibeSwap")+" "+brandCyanText.Render("●"))
 
 	if m.focus == focusInput {
 		// Render Input Modal centered
@@ -416,7 +422,7 @@ func (m model) View() string {
 		if activeProfile == "" {
 			activeProfile = grayText.Render("none")
 		} else {
-			activeProfile = brandCyanText.Render(activeProfile)
+			activeProfile = whiteText.Render(activeProfile)
 		}
 
 		line := fmt.Sprintf("%s%s (%s)", bullet, target.Name, activeProfile)
@@ -431,7 +437,7 @@ func (m model) View() string {
 	// Create derived responsive style for sidebar with dynamic focus border
 	sbBorderColor := borderColor
 	if m.focus == focusTargets {
-		sbBorderColor = brandCyanColor
+		sbBorderColor = brandRedColor
 	}
 	currSidebarStyle := sidebarStyle.BorderForeground(sbBorderColor).Width(sbWidth).Height(contentHeight)
 	leftPanel := currSidebarStyle.Render(sbContent.String())
@@ -478,7 +484,7 @@ func (m model) View() string {
 	// Create derived responsive style for main panel with dynamic focus border
 	mainBorderColor := borderColor
 	if m.focus == focusProfiles {
-		mainBorderColor = brandCyanColor
+		mainBorderColor = brandRedColor
 	}
 	currMainPanelStyle := mainPanelStyle.BorderForeground(mainBorderColor).Width(mainWidth).Height(contentHeight)
 	rightPanel := currMainPanelStyle.Render(mainContent.String())
@@ -500,13 +506,17 @@ func (m model) View() string {
 	// Help / Footer
 	var helpParts []string
 	if m.focus == focusTargets {
-		helpParts = append(helpParts, "[enter] Focus Profiles", "[s] Save Active", "[q] Quit")
+		helpParts = append(helpParts, hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
 	} else if m.focus == focusProfiles {
-		helpParts = append(helpParts, "[esc/left] Back", "[enter] Switch Target", "[d] Delete", "[a] Switch All (Global)", "[q] Quit")
+		helpParts = append(helpParts, hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
 	}
 	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
 
 	return appStyle.Render(strings.Join(views, "\n"))
+}
+
+func hotkey(key string, label string) string {
+	return "[" + brandCyanText.Render(key) + "] " + label
 }
 
 func RunTUI() error {

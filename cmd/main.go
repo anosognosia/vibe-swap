@@ -18,7 +18,7 @@ import (
 var (
 	interactiveFlag bool
 
-	// Brand colors pulled from the logo: cup red, aqua ball, and soft neutral text.
+	// Brand colors pulled from the logo: red dominates, aqua marks key status.
 	brandRed  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C91F26")).Bold(true)
 	brandCyan = lipgloss.NewStyle().Foreground(lipgloss.Color("#29AEDD"))
 	green     = lipgloss.NewStyle().Foreground(lipgloss.Color("#278A64"))
@@ -82,7 +82,7 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 
 				statusBullet := red.Render("○")
 				if installed {
-					statusBullet = green.Render("●")
+					statusBullet = brandCyan.Render("●")
 				}
 
 				fmt.Printf("%s %s (%s)\n", statusBullet, brandRed.Render(target.Name), targetID)
