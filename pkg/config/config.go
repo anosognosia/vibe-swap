@@ -126,11 +126,12 @@ func GetDefaultConfig() *Config {
 				Path: "~/.codex/auth.json",
 			},
 			"claude_cli": {
-				Name:   "Claude Code CLI",
-				Type:   TypeWrappedDir,
-				Path:   "~/.claude",
-				EnvVar: "CLAUDE_CONFIG_DIR",
-				Binary: "claude",
+				Name:    "Claude Code CLI",
+				Type:    TypeWrappedDir,
+				Path:    "~/.claude",
+				EnvVar:  "CLAUDE_CONFIG_DIR",
+				Binary:  "claude",
+				Service: "Claude Code-credentials",
 			},
 			"claude_desktop": {
 				Name: "Claude Desktop App",

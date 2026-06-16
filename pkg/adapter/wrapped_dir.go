@@ -1,11 +1,15 @@
 package adapter
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"vibeswap/pkg/config"
 )
 
@@ -45,7 +49,9 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 	canonicalSrc, errSrc := filepath.EvalSymlinks(srcDir)
 	canonicalDst, errDst := filepath.EvalSymlinks(destDir)
 	if errSrc == nil && errDst == nil && canonicalSrc == canonicalDst {
-		// Source and destination point to the exact same physical folder, so saving is a no-op.
+		// Source and destination point to the exact same physical folder, so copy is a no-op.
+		// But we still want to save the Keychain credential if applicable!
+		_ = w.saveKeychain(target, targetID, destDir)
 		return nil
 	}
 
@@ -56,16 +62,24 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 
 	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
 		// If the source directory doesn't exist yet, we just create an empty destination directory.
-		return os.MkdirAll(destDir, 0700)
+		if err := os.MkdirAll(destDir, 0700); err != nil {
+			return err
+		}
+	} else {
+		// Clean destination directory before copying
+		_ = os.RemoveAll(destDir)
+		if err := os.MkdirAll(destDir, 0700); err != nil {
+			return err
+		}
+		if err := copyDir(srcDir, destDir); err != nil {
+			return err
+		}
 	}
 
-	// Clean destination directory before copying
-	_ = os.RemoveAll(destDir)
-	if err := os.MkdirAll(destDir, 0700); err != nil {
-		return err
-	}
+	// Save Keychain credential if configured
+	_ = w.saveKeychain(target, targetID, destDir)
 
-	return copyDir(srcDir, destDir)
+	return nil
 }
 
 func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileName string) error {
@@ -76,6 +90,16 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 
 	if _, err := os.Stat(profilePath); os.IsNotExist(err) {
 		return fmt.Errorf("profile directory %s does not exist", profileName)
+	}
+
+	// Before loading the new profile, save the current active profile's state (including keychain credentials).
+	state, err := config.LoadActiveState()
+	if err == nil && state.Targets[targetID] != "" && state.Targets[targetID] != profileName {
+		activeProfile := state.Targets[targetID]
+		activeProfilePath, pathErr := w.getProfilePath(targetID, activeProfile)
+		if pathErr == nil {
+			_ = w.saveKeychain(target, targetID, activeProfilePath)
+		}
 	}
 
 	// Check if default folder exists as a physical folder and has not been backed up
@@ -91,6 +115,7 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 			if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
 				_ = os.MkdirAll(backupPath, 0700)
 				_ = copyDir(defaultDir, backupPath)
+				_ = w.saveKeychain(target, targetID, backupPath)
 			}
 			_ = os.RemoveAll(defaultDir)
 		} else if isSymlink {
@@ -107,6 +132,104 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 	// Now create the symlink pointing to the active profile's folder
 	if err := os.Symlink(profilePath, defaultDir); err != nil {
 		return fmt.Errorf("failed to create symlink from %s to %s: %w", defaultDir, profilePath, err)
+	}
+
+	// Load Keychain credentials if they exist in the loaded profile
+	_ = w.loadKeychain(target, targetID, profilePath)
+
+	return nil
+}
+
+func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, destDir string) error {
+	service := target.Service
+	if service == "" && targetID == "claude_cli" {
+		service = "Claude Code-credentials"
+	}
+
+	if service == "" {
+		return nil
+	}
+
+	token, err := w.readFromKeychain(service)
+	if err != nil {
+		return err
+	}
+
+	account := target.Account
+	if account == "" {
+		account = "default"
+	}
+
+	kv := keychainValue{
+		Account: account,
+		Token:   token,
+	}
+
+	data, err := json.MarshalIndent(kv, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	keychainFile := filepath.Join(destDir, ".vibeswap_keychain.json")
+	return os.WriteFile(keychainFile, data, 0600)
+}
+
+func (w *WrappedDirAdapter) loadKeychain(target config.Target, targetID string, profilePath string) error {
+	service := target.Service
+	if service == "" && targetID == "claude_cli" {
+		service = "Claude Code-credentials"
+	}
+
+	if service == "" {
+		return nil
+	}
+
+	keychainFile := filepath.Join(profilePath, ".vibeswap_keychain.json")
+	data, err := os.ReadFile(keychainFile)
+	if err != nil {
+		return err
+	}
+
+	var kv keychainValue
+	if err := json.Unmarshal(data, &kv); err != nil {
+		return err
+	}
+
+	return w.writeToKeychain(service, kv.Account, kv.Token)
+}
+
+type keychainValue struct {
+	Account string `json:"account"`
+	Token   string `json:"token"`
+}
+
+func (w *WrappedDirAdapter) readFromKeychain(service string) (string, error) {
+	cmd := exec.Command("security", "find-generic-password", "-w", "-s", service)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", errors.New(strings.TrimSpace(stderr.String()))
+	}
+
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func (w *WrappedDirAdapter) writeToKeychain(service, account, token string) error {
+	// First delete existing entry (ignore failure)
+	deleteCmd := exec.Command("security", "delete-generic-password", "-s", service)
+	_ = deleteCmd.Run()
+
+	// Add new entry
+	addCmd := exec.Command("security", "add-generic-password", "-a", account, "-s", service, "-w", token)
+	var stderr bytes.Buffer
+	addCmd.Stderr = &stderr
+
+	err := addCmd.Run()
+	if err != nil {
+		return errors.New(strings.TrimSpace(stderr.String()))
 	}
 
 	return nil
