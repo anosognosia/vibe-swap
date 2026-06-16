@@ -236,7 +236,26 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, deleteCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
+	var renameCmd = &cobra.Command{
+		Use:   "rename [target] [old_profile] [new_profile]",
+		Short: "Rename a saved profile for a target",
+		Args:  cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			targetID := args[0]
+			oldName := args[1]
+			newName := args[2]
+
+			err := engine.RenameProfile(targetID, oldName, newName)
+			if err != nil {
+				fmt.Printf("%s Failed to rename profile: %v\n", red.Render("✖"), err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("%s Successfully renamed profile %q to %q for %s\n", green.Render("✔"), oldName, newName, targetID)
+		},
+	}
+
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

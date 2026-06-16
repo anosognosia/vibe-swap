@@ -71,6 +71,72 @@ func TestDeleteProfile(t *testing.T) {
 	}
 }
 
+func TestRenameProfile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	targetDir := filepath.Join(profilesDir, "mock_target")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatalf("failed to create target dir: %v", err)
+	}
+
+	fileProfile := filepath.Join(targetDir, "personal.json")
+	if err := os.WriteFile(fileProfile, []byte(`{"token":"1"}`), 0600); err != nil {
+		t.Fatalf("failed to create file profile: %v", err)
+	}
+	dirProfile := filepath.Join(targetDir, "work")
+	if err := os.MkdirAll(dirProfile, 0755); err != nil {
+		t.Fatalf("failed to create directory profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirProfile, "profile.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatalf("failed to create directory profile file: %v", err)
+	}
+
+	state := &config.ActiveState{Targets: map[string]string{"mock_target": "work"}}
+	if err := config.SaveActiveState(state); err != nil {
+		t.Fatalf("failed to save active state: %v", err)
+	}
+
+	if err := RenameProfile("mock_target", "personal", "home"); err != nil {
+		t.Fatalf("failed to rename file profile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "home.json")); err != nil {
+		t.Fatalf("expected renamed file profile: %v", err)
+	}
+	if _, err := os.Stat(fileProfile); !os.IsNotExist(err) {
+		t.Fatalf("expected old file profile to be gone, got %v", err)
+	}
+
+	if err := RenameProfile("mock_target", "work", "wtd"); err != nil {
+		t.Fatalf("failed to rename directory profile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "wtd", "profile.json")); err != nil {
+		t.Fatalf("expected renamed directory profile: %v", err)
+	}
+	state, err = config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("failed to load active state: %v", err)
+	}
+	if state.Targets["mock_target"] != "wtd" {
+		t.Fatalf("expected active profile to be renamed to wtd, got %q", state.Targets["mock_target"])
+	}
+
+	if err := RenameProfile("mock_target", "wtd", "home"); err == nil {
+		t.Fatal("expected rename collision to fail")
+	}
+}
+
 func TestListProfiles(t *testing.T) {
 	// Create temporary directory for tests
 	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")

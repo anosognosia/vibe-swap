@@ -21,6 +21,13 @@ const (
 	focusInput
 )
 
+type inputMode int
+
+const (
+	inputModeSave inputMode = iota
+	inputModeRename
+)
+
 type model struct {
 	config             *config.Config
 	activeState        *config.ActiveState
@@ -30,6 +37,8 @@ type model struct {
 	selectedProfileIdx int
 	focus              focusArea
 	input              textinput.Model
+	inputMode          inputMode
+	renameOldName      string
 	statusMsg          string
 	statusIsError      bool
 	width              int
@@ -103,25 +112,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				targetID := m.targetIDs[m.selectedTargetIdx]
-				err := engine.SaveProfile(targetID, name)
-				if err != nil {
-					m.statusMsg = fmt.Sprintf("Error saving profile: %v", err)
-					m.statusIsError = true
+
+				if m.inputMode == inputModeRename {
+					err := engine.RenameProfile(targetID, m.renameOldName, name)
+					if err != nil {
+						m.statusMsg = fmt.Sprintf("Error renaming profile: %v", err)
+						m.statusIsError = true
+					} else {
+						m.statusMsg = fmt.Sprintf("Renamed profile %q to %q", m.renameOldName, name)
+						m.statusIsError = false
+						m.profiles, _ = engine.ListProfiles()
+						m.activeState, _ = config.LoadActiveState()
+						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
+						m.focus = focusProfiles
+					}
 				} else {
-					m.statusMsg = fmt.Sprintf("Successfully saved active credentials as profile %q", name)
-					m.statusIsError = false
-					// Reload profiles and state
-					m.profiles, _ = engine.ListProfiles()
-					m.activeState, _ = config.LoadActiveState()
+					err := engine.SaveProfile(targetID, name)
+					if err != nil {
+						m.statusMsg = fmt.Sprintf("Error saving profile: %v", err)
+						m.statusIsError = true
+					} else {
+						m.statusMsg = fmt.Sprintf("Saved active credentials as profile %q", name)
+						m.statusIsError = false
+						m.profiles, _ = engine.ListProfiles()
+						m.activeState, _ = config.LoadActiveState()
+						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
+					}
+					m.focus = focusTargets
 				}
-				m.focus = focusTargets
 				m.input.Reset()
+				m.renameOldName = ""
 				return m, nil
 
 			case "esc":
 				m.focus = focusTargets
 				m.input.Reset()
-				m.statusMsg = "Cancelled saving profile"
+				m.renameOldName = ""
+				if m.inputMode == inputModeRename {
+					m.statusMsg = "Cancelled renaming profile"
+				} else {
+					m.statusMsg = "Cancelled saving profile"
+				}
 				m.statusIsError = false
 				return m, nil
 			}
@@ -220,12 +251,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			target := m.config.Targets[targetID]
 			adp, err := adapter.GetAdapter(target.Type)
 			if err == nil && adp.IsInstalled(target) {
+				m.inputMode = inputModeSave
+				m.renameOldName = ""
+				m.input.Placeholder = "profile_name"
 				m.focus = focusInput
 				m.input.Focus()
 				m.statusMsg = ""
 			} else {
 				m.statusMsg = fmt.Sprintf("Cannot save: target %s is not installed/configured", targetID)
 				m.statusIsError = true
+			}
+
+		case "r":
+			if m.focus == focusProfiles {
+				targetID := m.targetIDs[m.selectedTargetIdx]
+				profiles := m.profiles[targetID]
+				if len(profiles) > 0 {
+					m.inputMode = inputModeRename
+					m.renameOldName = profiles[m.selectedProfileIdx]
+					m.input.Placeholder = "new_profile_name"
+					m.input.SetValue(m.renameOldName)
+					m.input.CursorEnd()
+					m.focus = focusInput
+					m.input.Focus()
+					m.statusMsg = ""
+				}
 			}
 
 		case "a":
@@ -368,11 +418,15 @@ func (m model) View() string {
 
 	if m.focus == focusInput {
 		// Render Input Modal centered
-		modalContent := fmt.Sprintf(
-			"Save active credentials for\n%s as profile:\n\n%s\n\n[enter] Save  [esc] Cancel",
-			m.targetIDs[m.selectedTargetIdx],
-			m.input.View(),
-		)
+		action := "Save active credentials for"
+		confirm := "Save"
+		subject := m.targetIDs[m.selectedTargetIdx]
+		if m.inputMode == inputModeRename {
+			action = "Rename profile"
+			confirm = "Rename"
+			subject = m.renameOldName
+		}
+		modalContent := fmt.Sprintf("%s\n%s:\n\n%s\n\n[enter] %s  [esc] Cancel", action, subject, m.input.View(), confirm)
 		views = append(views, inputModalStyle.Render(modalContent))
 		return appStyle.Render(strings.Join(views, "\n"))
 	}
@@ -508,7 +562,7 @@ func (m model) View() string {
 	if m.focus == focusTargets {
 		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
 	} else if m.focus == focusProfiles {
-		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
+		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("r", "Rename"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
 	}
 	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
 
@@ -517,6 +571,15 @@ func (m model) View() string {
 
 func hotkey(key string, label string) string {
 	return "[" + brandCyanText.Render(key) + "] " + label
+}
+
+func profileIndex(profiles []string, name string) int {
+	for i, profile := range profiles {
+		if profile == name {
+			return i
+		}
+	}
+	return 0
 }
 
 func RunTUI() error {

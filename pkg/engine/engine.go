@@ -240,3 +240,64 @@ func DeleteProfile(targetID, profileName string) error {
 
 	return nil
 }
+
+// RenameProfile renames a saved profile for targetID and updates active state if needed.
+func RenameProfile(targetID, oldName, newName string) error {
+	if strings.TrimSpace(oldName) == "" || strings.TrimSpace(newName) == "" {
+		return fmt.Errorf("profile names cannot be empty")
+	}
+	if oldName == newName {
+		return fmt.Errorf("new profile name is the same as the old name")
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return err
+	}
+	targetDir := filepath.Join(profilesDir, targetID)
+
+	oldPath, isDir, err := existingProfilePath(targetDir, oldName)
+	if err != nil {
+		return err
+	}
+	if _, _, err := existingProfilePath(targetDir, newName); err == nil {
+		return fmt.Errorf("profile %s already exists for target %s", newName, targetID)
+	} else if !strings.Contains(err.Error(), "not found") {
+		return err
+	}
+
+	newPath := filepath.Join(targetDir, newName)
+	if !isDir {
+		newPath += ".json"
+	}
+
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("failed to rename profile: %v", err)
+	}
+
+	state, err := config.LoadActiveState()
+	if err == nil && state.Targets[targetID] == oldName {
+		state.Targets[targetID] = newName
+		_ = config.SaveActiveState(state)
+	}
+
+	return nil
+}
+
+func existingProfilePath(targetDir, profileName string) (string, bool, error) {
+	dirPath := filepath.Join(targetDir, profileName)
+	if fi, err := os.Stat(dirPath); err == nil && fi.IsDir() {
+		return dirPath, true, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", false, err
+	}
+
+	filePath := filepath.Join(targetDir, profileName+".json")
+	if fi, err := os.Stat(filePath); err == nil && !fi.IsDir() {
+		return filePath, false, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", false, err
+	}
+
+	return "", false, fmt.Errorf("profile %s not found", profileName)
+}

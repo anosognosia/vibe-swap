@@ -154,6 +154,7 @@ vibeswap
 *   Press `Tab` to switch focus between the Targets sidebar and the Profiles list.
 *   Press `s` to save the active credentials of the highlighted target as a new profile.
 *   Press `Enter` to switch the highlighted target to the highlighted profile.
+*   Press `r` to rename the highlighted profile.
 *   Press `d` to delete the highlighted profile.
 *   Press `a` to apply the highlighted profile globally to all targets.
 *   Press `q` or `Ctrl+C` to quit.
@@ -179,6 +180,10 @@ vibeswap
 *   **Delete a profile**:
     ```bash
     vibeswap delete <target_id> <profile_name>
+    ```
+*   **Rename a profile**:
+    ```bash
+    vibeswap rename <target_id> <old_profile_name> <new_profile_name>
     ```
 *   **Install/update shell integration wrapper**:
     ```bash
