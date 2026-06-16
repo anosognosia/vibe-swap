@@ -1,7 +1,7 @@
 # VibeSwap
 
 <p align="center">
-  <img src="assets/vibeswap.png" alt="VibeSwap Logo" width="500" />
+  <img src="assets/vibeswap-crop.png" alt="VibeSwap Logo" width="500" />
 </p>
 
 VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI, Claude Code CLI, Claude Desktop, and Antigravity/agy.
