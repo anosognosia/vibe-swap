@@ -79,6 +79,7 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 				_ = os.MkdirAll(backupPath, 0700)
 				_ = copyDir(defaultDir, backupPath)
 			}
+			_ = os.RemoveAll(defaultDir)
 		}
 	}
 
