@@ -59,7 +59,19 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "path": "~/Library/Application Support/Claude",
       "app_name": "Claude",
       "paths": [
-        "~/Library/Application Support/Claude"
+        "~/Library/Application Support/Claude/config.json",
+        "~/Library/Application Support/Claude/Cookies",
+        "~/Library/Application Support/Claude/Cookies-journal",
+        "~/Library/Application Support/Claude/DIPS",
+        "~/Library/Application Support/Claude/DIPS-wal",
+        "~/Library/Application Support/Claude/Local State",
+        "~/Library/Application Support/Claude/Preferences",
+        "~/Library/Application Support/Claude/ant-did",
+        "~/Library/Application Support/Claude/Network Persistent State",
+        "~/Library/Application Support/Claude/fcache",
+        "~/Library/Application Support/Claude/Local Storage",
+        "~/Library/Application Support/Claude/Session Storage",
+        "~/Library/Application Support/Claude/IndexedDB"
       ],
       "processes": [
         "Claude",
@@ -85,7 +97,28 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "path": "~/Library/Application Support/Codex",
       "app_name": "Codex",
       "paths": [
-        "~/Library/Application Support/Codex",
+        "~/Library/Application Support/Codex/Cookies",
+        "~/Library/Application Support/Codex/Cookies-journal",
+        "~/Library/Application Support/Codex/DIPS",
+        "~/Library/Application Support/Codex/DIPS-wal",
+        "~/Library/Application Support/Codex/Local State",
+        "~/Library/Application Support/Codex/Local Storage",
+        "~/Library/Application Support/Codex/Network Persistent State",
+        "~/Library/Application Support/Codex/Preferences",
+        "~/Library/Application Support/Codex/Session Storage",
+        "~/Library/Application Support/Codex/Default/Cookies",
+        "~/Library/Application Support/Codex/Default/Cookies-journal",
+        "~/Library/Application Support/Codex/Default/DIPS",
+        "~/Library/Application Support/Codex/Default/DIPS-wal",
+        "~/Library/Application Support/Codex/Default/Local Storage",
+        "~/Library/Application Support/Codex/Default/Network Persistent State",
+        "~/Library/Application Support/Codex/Default/Preferences",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies-journal",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/DIPS",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Network Persistent State",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
         "~/Library/Application Support/OpenAI/Codex"
       ],
       "processes": [
@@ -134,9 +167,9 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
-Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save Application Support snapshots and matching Keychain items. Recent June 2026 Claude Desktop switchers either rename the full `~/Library/Application Support/Claude` data directory per profile or stage/restore a broad session set with rollback. VibeSwap now uses whole-root desktop snapshots by default to avoid mixing old cookies with stale local storage or IndexedDB state.
+Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save selected Application Support session files and matching Keychain items. Recent June 2026 Claude Desktop switchers either rename the full `~/Library/Application Support/Claude` data directory per profile or stage/restore a broad session set with rollback. VibeSwap uses the smaller staged-session approach by default because full app-data copies can be tens of gigabytes and are too slow for a profile save.
 
-Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing desktop profiles saved before whole-root snapshots were added must be re-saved while the intended account is active; VibeSwap refuses to switch old partial desktop profiles instead of restoring incomplete auth state.
+Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing desktop profiles saved before the current session list was added should be re-saved while the intended account is active.
 
 ## Usage
 

@@ -502,7 +502,7 @@ func (m model) View() string {
 	var views []string
 
 	// Header
-	views = append(views, titleStyle.Render("VibeSwap")+" "+brandCyanText.Render("●"))
+	views = append(views, titleStyle.Render("VibeSwap ●"))
 
 	if m.focus == focusInput {
 		// Render Input Modal centered

@@ -141,12 +141,6 @@ func (e *ElectronAdapter) Load(target config.Target, targetID string, profileNam
 	for _, configuredPath := range prof.Paths {
 		profilePaths[configuredPath] = struct{}{}
 	}
-	if target.Path != "" && targetUsesWholeRoot(target) {
-		if _, ok := profilePaths[target.Path]; !ok {
-			return fmt.Errorf("profile %q was saved with an older partial desktop snapshot; sign in with the intended desktop account and save this profile again before switching", profileName)
-		}
-	}
-
 	for _, configuredPath := range target.Paths {
 		if _, ok := profilePaths[configuredPath]; ok {
 			continue
@@ -373,9 +367,7 @@ func (e *ElectronAdapter) writeKeychain(service, account, token string) error {
 func electronRelPath(root, path string) (string, error) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
-	if rel, err := filepath.Rel(root, path); err == nil && rel == "." {
-		return rel, nil
-	} else if err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
+	if rel, err := filepath.Rel(root, path); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
 		return rel, nil
 	}
 	volume := filepath.VolumeName(path)
@@ -385,14 +377,4 @@ func electronRelPath(root, path string) (string, error) {
 		return "", fmt.Errorf("cannot derive profile path for %s", root)
 	}
 	return filepath.Join("_external", path), nil
-}
-
-func targetUsesWholeRoot(target config.Target) bool {
-	root := config.ExpandPath(target.Path)
-	for _, configuredPath := range target.Paths {
-		if config.ExpandPath(configuredPath) == root {
-			return true
-		}
-	}
-	return false
 }

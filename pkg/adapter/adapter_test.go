@@ -462,13 +462,6 @@ func TestElectronRelPath(t *testing.T) {
 		t.Fatalf("expected external path under _external, got %q", rel)
 	}
 
-	rel, err = electronRelPath(root, root)
-	if err != nil {
-		t.Fatalf("failed to derive root relative path: %v", err)
-	}
-	if rel != "." {
-		t.Fatalf("expected root relative path '.', got %q", rel)
-	}
 }
 
 func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
@@ -542,45 +535,6 @@ func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
 		t.Fatalf("expected stale session dir to be removed, got err=%v", err)
-	}
-}
-
-func TestElectronAdapterWholeRootRefusesPartialProfile(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "vibeswap-electron-root-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
-	os.Setenv("HOME", tmpDir)
-
-	root := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
-	cookiePath := filepath.Join(root, "Cookies")
-	if err := os.MkdirAll(root, 0755); err != nil {
-		t.Fatalf("failed to create app dir: %v", err)
-	}
-	if err := os.WriteFile(cookiePath, []byte("cookie-v1"), 0600); err != nil {
-		t.Fatalf("failed to write cookie file: %v", err)
-	}
-
-	partialTarget := config.Target{
-		Name:  "Claude Desktop",
-		Type:  config.TypeElectron,
-		Path:  root,
-		Paths: []string{cookiePath},
-	}
-	adp := &ElectronAdapter{}
-	if err := adp.Save(partialTarget, "claude_desktop_test", "legacy"); err != nil {
-		t.Fatalf("failed to save partial electron profile: %v", err)
-	}
-
-	wholeRootTarget := partialTarget
-	wholeRootTarget.Paths = []string{root}
-	err = adp.Load(wholeRootTarget, "claude_desktop_test", "legacy")
-	if err == nil || !strings.Contains(err.Error(), "older partial desktop snapshot") {
-		t.Fatalf("expected older partial desktop snapshot error, got %v", err)
 	}
 }
 
