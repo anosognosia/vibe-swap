@@ -1,5 +1,9 @@
 # VibeSwap
 
+<p align="center">
+  <img src="assets/vibeswap.png" alt="VibeSwap Logo" width="250" />
+</p>
+
 VibeSwap is a small, lightweight, and performant account and token switcher for AI vibe coding harnesses (Cursor, Windsurf, Claude Code, etc.) and coding CLIs (Codex, Antigravity/agy). 
 
 It allows you to switch between accounts/tokens instantly while keeping your workspace sessions, terminal states, and editor layouts intact.
