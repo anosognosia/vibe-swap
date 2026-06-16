@@ -36,7 +36,9 @@ func ListProfiles() (map[string][]string, error) {
 
 			var profiles []string
 			for _, file := range files {
-				if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+				if file.IsDir() {
+					profiles = append(profiles, file.Name())
+				} else if strings.HasSuffix(file.Name(), ".json") {
 					profileName := strings.TrimSuffix(file.Name(), ".json")
 					profiles = append(profiles, profileName)
 				}
