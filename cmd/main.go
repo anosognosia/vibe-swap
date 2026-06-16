@@ -18,18 +18,18 @@ import (
 var (
 	interactiveFlag bool
 
-	// Brand Colors: Solo Cup Red (#C62828) & Cyan Ball (#00B0FF)
-	brandRed  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C62828")).Bold(true)
-	brandCyan = lipgloss.NewStyle().Foreground(lipgloss.Color("#00B0FF"))
-	green     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00E676"))
-	red       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5252"))
-	gray      = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7A89"))
+	// Brand colors pulled from the logo: cup red, aqua ball, and soft neutral text.
+	brandRed  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C91F26")).Bold(true)
+	brandCyan = lipgloss.NewStyle().Foreground(lipgloss.Color("#29AEDD"))
+	green     = lipgloss.NewStyle().Foreground(lipgloss.Color("#278A64"))
+	red       = lipgloss.NewStyle().Foreground(lipgloss.Color("#C91F26"))
+	gray      = lipgloss.NewStyle().Foreground(lipgloss.Color("#8A7777"))
 )
 
 func main() {
 	var rootCmd = &cobra.Command{
 		Use:   "vibeswap",
-		Short: "VibeSwap is an account and token switcher for AI vibe coding harnesses.",
+		Short: "VibeSwap is an account and token switcher for AI coding CLIs and apps.",
 		Long: `A small, lightweight, and performant account switcher that lets you switch
 credentials for CLI tools and desktop apps without losing your workspace state or active sessions.`,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -86,7 +86,7 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 				}
 
 				fmt.Printf("%s %s (%s)\n", statusBullet, brandRed.Render(target.Name), targetID)
-				
+
 				activeProfile := state.Targets[targetID]
 				if activeProfile == "" {
 					activeProfile = gray.Render("none")

@@ -283,44 +283,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 var (
-	// Brand Colors: Solo Cup Red (#C62828) & Cyan Ball (#00B0FF)
-	brandRedColor  = lipgloss.Color("#C62828")
-	brandCyanColor = lipgloss.Color("#00B0FF")
-	greenColor     = lipgloss.Color("#00E676")
-	grayColor      = lipgloss.Color("#4A5568")
-	redColor       = lipgloss.Color("#FF5252")
+	// Brand colors pulled from the logo: cup red, aqua ball, and warm white space.
+	brandRedColor  = lipgloss.Color("#C91F26")
+	brandCyanColor = lipgloss.Color("#29AEDD")
+	creamColor     = lipgloss.Color("#F7F5F0")
+	inkColor       = lipgloss.Color("#24191A")
+	mutedColor     = lipgloss.Color("#8A7777")
+	borderColor    = lipgloss.Color("#E8D8D6")
+	successColor   = lipgloss.Color("#278A64")
+	redColor       = lipgloss.Color("#C91F26")
 
 	// Text Styles for rendering colored text
 	brandRedText  = lipgloss.NewStyle().Foreground(brandRedColor)
 	brandCyanText = lipgloss.NewStyle().Foreground(brandCyanColor)
-	greenText     = lipgloss.NewStyle().Foreground(greenColor)
-	grayText      = lipgloss.NewStyle().Foreground(grayColor)
+	greenText     = lipgloss.NewStyle().Foreground(successColor)
+	grayText      = lipgloss.NewStyle().Foreground(mutedColor)
 	redText       = lipgloss.NewStyle().Foreground(redColor)
 
 	appStyle = lipgloss.NewStyle().
 			Padding(1, 2).
-			Background(lipgloss.Color("#000000")).
-			Foreground(lipgloss.Color("#FFFFFF"))
+			Background(creamColor).
+			Foreground(inkColor)
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(brandRedColor).
-			Padding(0, 2).
+			Foreground(brandRedColor).
+			Padding(0, 1).
 			MarginBottom(1)
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(brandCyanColor).
-			Underline(true).
+			Foreground(brandRedColor).
 			MarginBottom(1)
 
 	sidebarStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
 			Padding(1)
 
 	mainPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
 			Padding(1)
 
 	selectedItemStyle = lipgloss.NewStyle().
@@ -341,11 +342,11 @@ var (
 			Padding(0, 1)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(grayColor).
+			Foreground(mutedColor).
 			MarginTop(1)
 
 	inputModalStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(brandRedColor).
 			Padding(1, 2).
 			Width(45).
@@ -357,7 +358,7 @@ func (m model) View() string {
 	var views []string
 
 	// Header
-	views = append(views, titleStyle.Render("V I B E S W A P"))
+	views = append(views, titleStyle.Render("VibeSwap "+brandCyanText.Render("●")))
 
 	if m.focus == focusInput {
 		// Render Input Modal centered
@@ -426,9 +427,9 @@ func (m model) View() string {
 			sbContent.WriteString(normalItemStyle.Render(line) + "\n")
 		}
 	}
-	
+
 	// Create derived responsive style for sidebar with dynamic focus border
-	sbBorderColor := grayColor
+	sbBorderColor := borderColor
 	if m.focus == focusTargets {
 		sbBorderColor = brandCyanColor
 	}
@@ -473,9 +474,9 @@ func (m model) View() string {
 			}
 		}
 	}
-	
+
 	// Create derived responsive style for main panel with dynamic focus border
-	mainBorderColor := grayColor
+	mainBorderColor := borderColor
 	if m.focus == focusProfiles {
 		mainBorderColor = brandCyanColor
 	}
@@ -487,7 +488,7 @@ func (m model) View() string {
 
 	// Status Message
 	if m.statusMsg != "" {
-		style := statusStyle.Foreground(greenColor)
+		style := statusStyle.Foreground(successColor)
 		if m.statusIsError {
 			style = statusStyle.Foreground(redColor)
 		}
