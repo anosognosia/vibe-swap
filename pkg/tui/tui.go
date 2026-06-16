@@ -287,7 +287,7 @@ var (
 	brandRedColor  = lipgloss.Color("#C91F26")
 	brandCyanColor = lipgloss.Color("#29AEDD")
 	whiteColor     = lipgloss.Color("#F7F5F0")
-	blackColor     = lipgloss.Color("#100B0C")
+	frameColor     = lipgloss.Color("#2A0B0D")
 	panelColor     = lipgloss.Color("#1A1113")
 	mutedColor     = lipgloss.Color("#7B6668")
 	borderColor    = lipgloss.Color("#4E2326")
@@ -304,7 +304,7 @@ var (
 
 	appStyle = lipgloss.NewStyle().
 			Padding(1, 2).
-			Background(blackColor).
+			Background(frameColor).
 			Foreground(whiteColor)
 
 	titleStyle = lipgloss.NewStyle().
@@ -506,9 +506,9 @@ func (m model) View() string {
 	// Help / Footer
 	var helpParts []string
 	if m.focus == focusTargets {
-		helpParts = append(helpParts, hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
+		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
 	} else if m.focus == focusProfiles {
-		helpParts = append(helpParts, hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
+		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
 	}
 	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
 
