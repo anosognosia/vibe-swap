@@ -161,6 +161,13 @@ func GetDefaultConfig() *Config {
 					"cf_clearance",
 					"__cf_bm",
 				},
+				Paths: []string{
+					"~/Library/Application Support/Claude/Local Storage",
+					"~/Library/Application Support/Claude/Session Storage",
+					"~/Library/Application Support/Claude/IndexedDB",
+					"~/Library/Application Support/Claude/fcache",
+					"~/Library/Application Support/Claude/ant-did",
+				},
 				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
 				ProcessPatterns: []string{
 					"--user-data-dir=~/Library/Application Support/Claude",
@@ -212,7 +219,7 @@ func normalizeConfig(cfg *Config) bool {
 				changed = true
 			}
 		case "claude_desktop":
-			if current.Type != target.Type || current.Path != target.Path {
+			if current.Type != target.Type || current.Path != target.Path || len(current.Paths) == 0 {
 				cfg.Targets[id] = target
 				changed = true
 			}

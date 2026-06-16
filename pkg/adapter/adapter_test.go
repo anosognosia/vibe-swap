@@ -588,6 +588,16 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 		Type: config.TypeSQLite,
 		Path: liveDB,
 		Keys: []string{"sessionKey", "sessionKeyLC", "routingHint", "lastActiveOrg"},
+		Paths: []string{
+			filepath.Join(filepath.Dir(liveDB), "Local Storage"),
+		},
+	}
+	localStorageFile := filepath.Join(filepath.Dir(liveDB), "Local Storage", "leveldb", "000001.log")
+	if err := os.MkdirAll(filepath.Dir(localStorageFile), 0755); err != nil {
+		t.Fatalf("failed to create local storage dir: %v", err)
+	}
+	if err := os.WriteFile(localStorageFile, []byte("work-local-storage"), 0600); err != nil {
+		t.Fatalf("failed to write local storage file: %v", err)
 	}
 	adp := &SQLiteAdapter{}
 	if err := adp.Save(target, "claude_desktop_test", "work"); err != nil {
@@ -603,6 +613,13 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 `
 	if err := exec.Command("sqlite3", liveDB, mutateSQL).Run(); err != nil {
 		t.Fatalf("failed to mutate live cookie DB: %v", err)
+	}
+	staleLocalStorageFile := filepath.Join(filepath.Dir(liveDB), "Local Storage", "leveldb", "stale.log")
+	if err := os.WriteFile(localStorageFile, []byte("personal-local-storage"), 0600); err != nil {
+		t.Fatalf("failed to mutate local storage file: %v", err)
+	}
+	if err := os.WriteFile(staleLocalStorageFile, []byte("stale"), 0600); err != nil {
+		t.Fatalf("failed to write stale local storage file: %v", err)
 	}
 
 	if err := adp.Load(target, "claude_desktop_test", "work"); err != nil {
@@ -629,6 +646,17 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 	}
 	if strings.TrimSpace(string(out)) != "6B656570" {
 		t.Fatalf("expected unrelated cookie to be preserved, got %q", strings.TrimSpace(string(out)))
+	}
+
+	data, err := os.ReadFile(localStorageFile)
+	if err != nil {
+		t.Fatalf("failed to read restored local storage file: %v", err)
+	}
+	if string(data) != "work-local-storage" {
+		t.Fatalf("expected restored local storage, got %q", string(data))
+	}
+	if _, err := os.Stat(staleLocalStorageFile); !os.IsNotExist(err) {
+		t.Fatalf("expected stale local storage file to be removed, got err=%v", err)
 	}
 }
 

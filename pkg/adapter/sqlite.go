@@ -13,6 +13,7 @@ import (
 type SQLiteAdapter struct{}
 
 const savedSQLiteCookiesFile = "cookies.sqlite"
+const savedSQLiteFilesDir = "files"
 
 var requiredClaudeDesktopCookies = []string{"sessionKey", "lastActiveOrg"}
 
@@ -47,6 +48,10 @@ func (s *SQLiteAdapter) Save(target config.Target, targetID string, profileName 
 		return err
 	}
 
+	if err := s.saveCompanionState(target, profilePath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -64,6 +69,9 @@ func (s *SQLiteAdapter) Load(target config.Target, targetID string, profileName 
 		return fmt.Errorf("saved SQLite profile %q not found for target %s", profileName, targetID)
 	}
 	if err := s.validateCookies(savedDB, requiredCookieNames(targetID)); err != nil {
+		return err
+	}
+	if err := s.restoreCompanionState(target, profilePath); err != nil {
 		return err
 	}
 
@@ -146,6 +154,94 @@ func (s *SQLiteAdapter) getProfilePath(targetID, profileName string) (string, er
 		return "", err
 	}
 	return targetDir, nil
+}
+
+func (s *SQLiteAdapter) saveCompanionState(target config.Target, profilePath string) error {
+	if len(target.Paths) == 0 {
+		return nil
+	}
+
+	filesDir := filepath.Join(profilePath, savedSQLiteFilesDir)
+	if err := os.MkdirAll(filesDir, 0700); err != nil {
+		return err
+	}
+
+	root := sqliteCompanionRoot(target)
+	for _, configuredPath := range target.Paths {
+		src := config.ExpandPath(configuredPath)
+		if _, err := os.Stat(src); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("failed to stat %s: %w", configuredPath, err)
+		}
+
+		rel, err := electronRelPath(root, src)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(filesDir, rel)
+		info, err := os.Stat(src)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if err := syncDir(src, dst); err != nil {
+				return fmt.Errorf("failed to save companion state %s: %w", configuredPath, err)
+			}
+		} else if err := copyFileHelper(src, dst); err != nil {
+			return fmt.Errorf("failed to save companion state %s: %w", configuredPath, err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteAdapter) restoreCompanionState(target config.Target, profilePath string) error {
+	if len(target.Paths) == 0 {
+		return nil
+	}
+
+	filesDir := filepath.Join(profilePath, savedSQLiteFilesDir)
+	if _, err := os.Stat(filesDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	root := sqliteCompanionRoot(target)
+	for _, configuredPath := range target.Paths {
+		dst := config.ExpandPath(configuredPath)
+		rel, err := electronRelPath(root, dst)
+		if err != nil {
+			return err
+		}
+		src := filepath.Join(filesDir, rel)
+		info, err := os.Stat(src)
+		if os.IsNotExist(err) {
+			if err := os.RemoveAll(dst); err != nil {
+				return fmt.Errorf("failed to remove stale companion state %s: %w", configuredPath, err)
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if err := syncDir(src, dst); err != nil {
+				return fmt.Errorf("failed to restore companion state %s: %w", configuredPath, err)
+			}
+		} else if err := copyFileHelper(src, dst); err != nil {
+			return fmt.Errorf("failed to restore companion state %s: %w", configuredPath, err)
+		}
+	}
+	return nil
+}
+
+func sqliteCompanionRoot(target config.Target) string {
+	path := config.ExpandPath(target.Path)
+	if filepath.Base(path) == "Cookies" {
+		return filepath.Dir(path)
+	}
+	return path
 }
 
 func (s *SQLiteAdapter) validateCookies(dbPath string, required []string) error {

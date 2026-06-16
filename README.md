@@ -67,6 +67,13 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "cf_clearance",
         "__cf_bm"
       ],
+      "paths": [
+        "~/Library/Application Support/Claude/Local Storage",
+        "~/Library/Application Support/Claude/Session Storage",
+        "~/Library/Application Support/Claude/IndexedDB",
+        "~/Library/Application Support/Claude/fcache",
+        "~/Library/Application Support/Claude/ant-did"
+      ],
       "processes": [
         "Claude",
         "Claude Helper",
@@ -77,7 +84,7 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "process_patterns": [
         "--user-data-dir=~/Library/Application Support/Claude",
         "Claude.app/Contents/MacOS/Claude"
-      ],
+      ]
     },
     "agy": {
       "name": "Antigravity CLI (agy)",
@@ -105,7 +112,7 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
-Claude Desktop uses Electron/Chromium cookies on macOS. VibeSwap's `claude_desktop` target snapshots only selected encrypted rows from `~/Library/Application Support/Claude/Cookies` and restores those rows into the live database. Cookie values stay encrypted with the machine's existing Chromium Safe Storage key; VibeSwap does not decrypt or print them. A Claude Desktop profile must contain at least `sessionKey` and `lastActiveOrg`, and VibeSwap also carries companion rows such as `sessionKeyLC`, `routingHint`, `anthropic-device-id`, `cf_clearance`, and `__cf_bm` when present.
+Claude Desktop uses Electron/Chromium cookies and browser storage on macOS. VibeSwap's `claude_desktop` target snapshots selected encrypted rows from `~/Library/Application Support/Claude/Cookies` plus small companion browser-state paths such as Local Storage, Session Storage, IndexedDB, fcache, and ant-did. Cookie values stay encrypted with the machine's existing Chromium Safe Storage key; VibeSwap does not decrypt or print them. A Claude Desktop profile must contain at least `sessionKey` and `lastActiveOrg`, and VibeSwap also carries companion rows such as `sessionKeyLC`, `routingHint`, `anthropic-device-id`, `cf_clearance`, and `__cf_bm` when present.
 
 Quit Claude Desktop before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid writing a live SQLite database. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing Claude Desktop profiles saved with the previous broad Electron profile target should be re-saved while the intended account is active.
 
