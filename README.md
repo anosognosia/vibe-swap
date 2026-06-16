@@ -4,9 +4,9 @@
   <img src="assets/vibeswap.png" alt="VibeSwap Logo" width="500" />
 </p>
 
-VibeSwap is a small, lightweight, and performant account and token switcher for AI vibe coding harnesses (Cursor, Windsurf, Claude Code, etc.) and coding CLIs (Codex, Antigravity/agy). 
+VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI, Claude Code CLI, Claude Desktop, and Antigravity/agy.
 
-It allows you to switch between accounts/tokens instantly while keeping your workspace sessions, terminal states, and editor layouts intact.
+It allows you to switch between accounts/tokens while preserving each tool's local configuration and workspace state where the tool supports it.
 
 ## Features
 
@@ -17,7 +17,7 @@ It allows you to switch between accounts/tokens instantly while keeping your wor
     *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
     *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
     *   `keychain`: Swaps macOS Keychain generic password entries.
-    *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Swaps rows inside VS Code-based state databases (e.g., Cursor, Windsurf).
+    *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Reserved for tools that store credentials in local SQLite state.
 *   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
 
 ## Installation
