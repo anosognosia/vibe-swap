@@ -40,7 +40,7 @@ func (e *ElectronAdapter) getProfilePath(targetID, profileName string) (string, 
 
 func (e *ElectronAdapter) Save(target config.Target, targetID string, profileName string) error {
 	if running := e.runningProcesses(target); len(running) > 0 {
-		return fmt.Errorf("refusing to save while desktop app processes are running: %s", strings.Join(running, ", "))
+		return fmt.Errorf("refusing to save while desktop app processes are running: %s; quit the desktop app completely and retry", strings.Join(running, ", "))
 	}
 
 	profilePath, err := e.getProfilePath(targetID, profileName)
@@ -115,7 +115,7 @@ func (e *ElectronAdapter) Save(target config.Target, targetID string, profileNam
 
 func (e *ElectronAdapter) Load(target config.Target, targetID string, profileName string) error {
 	if running := e.runningProcesses(target); len(running) > 0 {
-		return fmt.Errorf("refusing to switch while desktop app processes are running: %s", strings.Join(running, ", "))
+		return fmt.Errorf("refusing to switch while desktop app processes are running: %s; quit the desktop app completely and retry", strings.Join(running, ", "))
 	}
 
 	profilePath, err := e.getProfilePath(targetID, profileName)

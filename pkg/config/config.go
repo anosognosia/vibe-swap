@@ -175,7 +175,7 @@ func GetDefaultConfig() *Config {
 					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
 					"~/Library/Application Support/OpenAI/Codex",
 				},
-				Processes: []string{"Codex", "Codex Helper", "Codex Helper (Renderer)", "Codex Helper (GPU)", "Codex Helper (Plugin)"},
+				Processes: []string{"Codex", "Codex (Service)", "Codex (Renderer)", "Codex Helper", "Codex Helper (Renderer)", "Codex Helper (GPU)", "Codex Helper (Plugin)"},
 				KeychainItems: []KeychainItem{
 					{Service: "Codex Safe Storage", Account: "Codex"},
 					{Service: "Codex Safe Storage", Account: "Codex Key"},
