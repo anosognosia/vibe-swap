@@ -122,11 +122,6 @@ func GetDefaultConfig() *Config {
 				Type: TypeFile,
 				Path: "~/.codex/auth.json",
 			},
-			"codex_desktop": {
-				Name: "Codex Desktop App",
-				Type: TypeFile,
-				Path: "~/Library/Application Support/Codex/Default/Cookies",
-			},
 			"claude_cli": {
 				Name:         "Claude Code CLI",
 				Type:         TypeKeychain,
