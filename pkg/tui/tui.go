@@ -441,7 +441,9 @@ var (
 			Bold(true).
 			Foreground(whiteColor).
 			Background(brandRedColor).
-			Padding(0, 2).
+			Padding(0, 2)
+
+	titleRowStyle = lipgloss.NewStyle().
 			MarginBottom(1)
 
 	headerStyle = lipgloss.NewStyle().
@@ -502,7 +504,7 @@ func (m model) View() string {
 	var views []string
 
 	// Header
-	views = append(views, titleStyle.Render("VibeSwap ●"))
+	views = append(views, titleRowStyle.Render(titleStyle.Render("VibeSwap")+" "+brandCyanText.Render("●")))
 
 	if m.focus == focusInput {
 		// Render Input Modal centered
