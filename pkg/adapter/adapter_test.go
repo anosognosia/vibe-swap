@@ -263,3 +263,56 @@ func TestJSONKeyAdapter(t *testing.T) {
 		t.Errorf("expected token to be restored to %q, got %q", "secret-jwt-token", tokenVal)
 	}
 }
+
+func TestWrappedDirAdapter(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	wa := &WrappedDirAdapter{}
+
+	srcDir := filepath.Join(tmpDir, "mock_wrapped_dir")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+	file1 := filepath.Join(srcDir, "token.txt")
+	_ = os.WriteFile(file1, []byte("token-v1"), 0600)
+
+	target := config.Target{
+		Name:   "Mock Wrapped Target",
+		Type:   config.TypeWrappedDir,
+		Path:   srcDir,
+		EnvVar: "WRAPPED_CONFIG_DIR",
+		Binary: "wrapped",
+	}
+
+	targetID := "mock_wrapped_target"
+	profileName := "test_profile"
+
+	if err := wa.Save(target, targetID, profileName); err != nil {
+		t.Fatalf("failed to save wrapped dir profile: %v", err)
+	}
+
+	// Verify profile directory exists and has the correct files
+	profilesDir, _ := config.GetProfilesDir()
+	profilePath := filepath.Join(profilesDir, targetID, profileName)
+	resFile := filepath.Join(profilePath, "token.txt")
+	resData, err := os.ReadFile(resFile)
+	if err != nil {
+		t.Fatalf("failed to read saved token: %v", err)
+	}
+	if string(resData) != "token-v1" {
+		t.Errorf("expected saved token to be %q, got %q", "token-v1", string(resData))
+	}
+
+	// Verify Load updates/checks successfully
+	if err := wa.Load(target, targetID, profileName); err != nil {
+		t.Fatalf("failed to load wrapped dir profile: %v", err)
+	}
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"vibeswap/pkg/adapter"
@@ -158,7 +159,66 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd)
+	var activePathCmd = &cobra.Command{
+		Use:   "active-path [target]",
+		Short: "Print the active configuration directory path for a wrapped target",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			targetID := args[0]
+			cfg, err := config.LoadConfig()
+			if err != nil {
+				return
+			}
+			target, exists := cfg.Targets[targetID]
+			if !exists {
+				return
+			}
+
+			state, err := config.LoadActiveState()
+			if err != nil {
+				return
+			}
+
+			activeProfile := state.Targets[targetID]
+			if activeProfile == "" {
+				fmt.Println(config.ExpandPath(target.Path))
+				return
+			}
+
+			profilesDir, err := config.GetProfilesDir()
+			if err != nil {
+				return
+			}
+			profilePath := filepath.Join(profilesDir, targetID, activeProfile)
+			fmt.Println(profilePath)
+		},
+	}
+
+	var shellInstallCmd = &cobra.Command{
+		Use:   "shell-install",
+		Short: "Install the shell integration wrapper in shell profile files (~/.zshrc, ~/.bashrc)",
+		Run: func(cmd *cobra.Command, args []string) {
+			err := installShellIntegration()
+			if err != nil {
+				fmt.Printf("%s Failed to install shell integration: %v\n", red.Render("✖"), err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	var shellUninstallCmd = &cobra.Command{
+		Use:   "shell-uninstall",
+		Short: "Uninstall the shell integration wrapper from shell profile files",
+		Run: func(cmd *cobra.Command, args []string) {
+			err := uninstallShellIntegration()
+			if err != nil {
+				fmt.Printf("%s Failed to uninstall shell integration: %v\n", red.Render("✖"), err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

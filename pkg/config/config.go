@@ -10,10 +10,11 @@ import (
 type TargetType string
 
 const (
-	TypeFile     TargetType = "file"
-	TypeJSONKey  TargetType = "json_key"
-	TypeKeychain TargetType = "keychain"
-	TypeSQLite   TargetType = "sqlite" // Deferred/future
+	TypeFile       TargetType = "file"
+	TypeJSONKey    TargetType = "json_key"
+	TypeKeychain   TargetType = "keychain"
+	TypeSQLite     TargetType = "sqlite" // Deferred/future
+	TypeWrappedDir TargetType = "wrapped_dir"
 )
 
 type Target struct {
@@ -26,6 +27,8 @@ type Target struct {
 	Account      string     `json:"account,omitempty"`      // For keychain type
 	FallbackFile string     `json:"fallback_file,omitempty"` // For keychain type fallback
 	Keys         []string   `json:"keys,omitempty"`         // For sqlite type (future)
+	EnvVar       string     `json:"env_var,omitempty"`      // For wrapped_dir type
+	Binary       string     `json:"binary,omitempty"`       // For wrapped_dir type
 }
 
 type Config struct {
@@ -123,9 +126,11 @@ func GetDefaultConfig() *Config {
 				Path: "~/.codex/auth.json",
 			},
 			"claude_cli": {
-				Name: "Claude Code CLI",
-				Type: TypeFile,
-				Path: "~/.claude",
+				Name:   "Claude Code CLI",
+				Type:   TypeWrappedDir,
+				Path:   "~/.claude",
+				EnvVar: "CLAUDE_CONFIG_DIR",
+				Binary: "claude",
 			},
 			"claude_desktop": {
 				Name: "Claude Desktop App",

@@ -24,6 +24,8 @@ func GetAdapter(targetType config.TargetType) (Adapter, error) {
 		return &KeychainAdapter{}, nil
 	case config.TypeSQLite:
 		return &SQLiteAdapter{}, nil
+	case config.TypeWrappedDir:
+		return &WrappedDirAdapter{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported target type: %s", targetType)
 	}
