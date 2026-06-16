@@ -183,6 +183,13 @@ func SwitchAllTargets(profileName string) error {
 
 // DeleteProfile deletes a saved profile for targetID.
 func DeleteProfile(targetID, profileName string) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	target, targetExists := cfg.Targets[targetID]
+
 	profilesDir, err := config.GetProfilesDir()
 	if err != nil {
 		return err
@@ -213,6 +220,13 @@ func DeleteProfile(targetID, profileName string) error {
 		if state.Targets[targetID] == profileName {
 			delete(state.Targets, targetID)
 			_ = config.SaveActiveState(state)
+
+			// If it's a wrapped directory target, we must remove the symlink and create a physical folder
+			if targetExists && target.Type == config.TypeWrappedDir && target.Path != "" {
+				defaultDir := config.ExpandPath(target.Path)
+				_ = os.Remove(defaultDir)          // Remove the symlink
+				_ = os.MkdirAll(defaultDir, 0700)   // Recreate as a real directory
+			}
 		}
 	}
 

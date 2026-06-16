@@ -124,3 +124,73 @@ func TestListProfiles(t *testing.T) {
 		t.Error("expected to find dir_profile")
 	}
 }
+
+func TestDeleteActiveWrappedProfile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	// Set up config dir, target config, and active state
+	configDir := filepath.Join(tmpDir, ".config", "vibeswap")
+	_ = os.MkdirAll(configDir, 0755)
+
+	targetDir := filepath.Join(tmpDir, "mock_wrapped_dir")
+	// Make it a symlink initially to profile dir
+	profilesDir := filepath.Join(configDir, "profiles")
+	profileDir := filepath.Join(profilesDir, "claude_cli", "personal")
+	_ = os.MkdirAll(profileDir, 0755)
+	_ = os.Symlink(profileDir, targetDir)
+
+	cfg := &config.Config{
+		Targets: map[string]config.Target{
+			"claude_cli": {
+				Name:   "Claude Code CLI",
+				Type:   config.TypeWrappedDir,
+				Path:   targetDir,
+				EnvVar: "CLAUDE_CONFIG_DIR",
+				Binary: "claude",
+			},
+		},
+	}
+	_ = config.SaveConfig(cfg)
+
+	state := &config.ActiveState{
+		Targets: map[string]string{
+			"claude_cli": "personal",
+		},
+	}
+	_ = config.SaveActiveState(state)
+
+	// Verify targetDir is a symlink
+	fi, err := os.Lstat(targetDir)
+	if err != nil {
+		t.Fatalf("failed to stat targetDir: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected targetDir to be a symlink initially")
+	}
+
+	// Delete active profile
+	err = DeleteProfile("claude_cli", "personal")
+	if err != nil {
+		t.Fatalf("unexpected error deleting profile: %v", err)
+	}
+
+	// Verify targetDir is now a real physical directory and not a symlink
+	fi, err = os.Lstat(targetDir)
+	if err != nil {
+		t.Fatalf("failed to stat targetDir after deletion: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("expected targetDir to not be a symlink after deletion")
+	}
+	if !fi.IsDir() {
+		t.Error("expected targetDir to be a directory after deletion")
+	}
+}
