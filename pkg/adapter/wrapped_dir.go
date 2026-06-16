@@ -68,12 +68,10 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 			return err
 		}
 	} else {
-		// Clean destination directory before copying
-		_ = os.RemoveAll(destDir)
 		if err := os.MkdirAll(destDir, 0700); err != nil {
 			return err
 		}
-		if err := copyDir(srcDir, destDir); err != nil {
+		if err := syncDir(srcDir, destDir); err != nil {
 			return err
 		}
 	}
@@ -128,7 +126,13 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 			}
 			_ = os.RemoveAll(defaultDir)
 		} else if isSymlink {
-			// If it's a symlink, remove it so we can re-create it pointing to the active profile
+			linkTarget, readErr := os.Readlink(defaultDir)
+			if readErr == nil && linkTarget == profilePath {
+				if err := w.loadKeychain(target, targetID, profilePath); err != nil {
+					return err
+				}
+				return nil
+			}
 			_ = os.Remove(defaultDir)
 		}
 	} else if !os.IsNotExist(err) {
@@ -316,7 +320,13 @@ func (w *WrappedDirAdapter) IsInstalled(target config.Target) bool {
 
 // copyDir recursively copies a directory tree, attempting to preserve permissions.
 func copyDir(src string, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	return syncDir(src, dst)
+}
+
+func syncDir(src string, dst string) error {
+	seen := make(map[string]struct{})
+
+	if err := filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -324,34 +334,97 @@ func copyDir(src string, dst string) error {
 		if err != nil {
 			return err
 		}
+		seen[rel] = struct{}{}
+
 		targetPath := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(targetPath, info.Mode())
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() {
+			if err := os.MkdirAll(targetPath, info.Mode()); err != nil {
+				return err
+			}
+			return os.Chmod(targetPath, info.Mode())
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			link, err := os.Readlink(path)
 			if err != nil {
 				return err
 			}
+			if existing, err := os.Readlink(targetPath); err == nil && existing == link {
+				return nil
+			}
+			_ = os.Remove(targetPath)
 			return os.Symlink(link, targetPath)
 		}
-		return copyFileHelper(path, targetPath)
+		return copyFileIfChanged(path, targetPath, info)
+	}); err != nil {
+		return err
+	}
+
+	return filepath.WalkDir(dst, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dst, path)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[rel]; ok {
+			return nil
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
 	})
 }
 
 func copyFileHelper(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return copyFileIfChanged(src, dst, info)
+}
+
+func copyFileIfChanged(src, dst string, srcInfo os.FileInfo) error {
+	if dstInfo, err := os.Stat(dst); err == nil {
+		if dstInfo.Size() == srcInfo.Size() &&
+			dstInfo.Mode().Perm() == srcInfo.Mode().Perm() &&
+			dstInfo.ModTime().Equal(srcInfo.ModTime()) {
+			return nil
+		}
+	}
+
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		_ = dstFile.Close()
+		return err
+	}
+	if err := dstFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, srcInfo.ModTime(), srcInfo.ModTime())
 }

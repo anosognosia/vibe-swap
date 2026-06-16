@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"vibeswap/pkg/config"
 )
 
@@ -380,6 +381,62 @@ func TestWrappedDirAdapter(t *testing.T) {
 	}
 	if string(symlinkedData) != "token-v1" {
 		t.Errorf("expected token content via symlink to be %q, got %q", "token-v1", string(symlinkedData))
+	}
+}
+
+func TestSyncDirSkipsUnchangedAndRemovesStaleFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-sync-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srcDir := filepath.Join(tmpDir, "src")
+	dstDir := filepath.Join(tmpDir, "dst")
+	if err := os.MkdirAll(filepath.Join(srcDir, "sub"), 0755); err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+
+	srcFile := filepath.Join(srcDir, "sub", "token.txt")
+	if err := os.WriteFile(srcFile, []byte("token-v1"), 0600); err != nil {
+		t.Fatalf("failed to write source file: %v", err)
+	}
+	srcTime := time.Unix(1234, 0)
+	if err := os.Chtimes(srcFile, srcTime, srcTime); err != nil {
+		t.Fatalf("failed to set source file time: %v", err)
+	}
+
+	if err := syncDir(srcDir, dstDir); err != nil {
+		t.Fatalf("failed initial sync: %v", err)
+	}
+
+	dstFile := filepath.Join(dstDir, "sub", "token.txt")
+	firstInfo, err := os.Stat(dstFile)
+	if err != nil {
+		t.Fatalf("failed to stat copied file: %v", err)
+	}
+	if !firstInfo.ModTime().Equal(srcTime) {
+		t.Fatalf("expected copied file mtime %v, got %v", srcTime, firstInfo.ModTime())
+	}
+
+	staleFile := filepath.Join(dstDir, "stale.txt")
+	if err := os.WriteFile(staleFile, []byte("stale"), 0600); err != nil {
+		t.Fatalf("failed to write stale file: %v", err)
+	}
+
+	if err := syncDir(srcDir, dstDir); err != nil {
+		t.Fatalf("failed second sync: %v", err)
+	}
+
+	secondInfo, err := os.Stat(dstFile)
+	if err != nil {
+		t.Fatalf("failed to stat copied file after second sync: %v", err)
+	}
+	if !secondInfo.ModTime().Equal(firstInfo.ModTime()) {
+		t.Fatalf("expected unchanged file mtime to remain %v, got %v", firstInfo.ModTime(), secondInfo.ModTime())
+	}
+	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+		t.Fatalf("expected stale file to be removed, got err %v", err)
 	}
 }
 
