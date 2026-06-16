@@ -4,7 +4,7 @@
   <img src="assets/vibeswap-crop.png" alt="VibeSwap Logo" width="500" />
 </p>
 
-VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI, Claude Code CLI, Claude Desktop, and Antigravity/agy.
+VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI/Desktop, Claude Code CLI, Claude Desktop, and Antigravity/agy.
 
 It allows you to switch between accounts/tokens while preserving each tool's local configuration and workspace state where the tool supports it.
 
@@ -18,7 +18,7 @@ It allows you to switch between accounts/tokens while preserving each tool's loc
     *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
     *   `keychain`: Swaps macOS Keychain generic password entries.
     *   `electron_profile`: Swaps selected Electron/Chromium desktop app state files plus matching macOS Safe Storage Keychain entries.
-    *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Reserved for tools that store credentials in local SQLite state.
+    *   `sqlite`: Swaps targeted encrypted cookie rows in local SQLite state without decrypting cookie values.
 *   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
 
 ## Installation
@@ -41,7 +41,7 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
 {
   "targets": {
     "codex": {
-      "name": "Codex CLI",
+      "name": "Codex CLI/Desktop",
       "type": "file",
       "path": "~/.codex/auth.json"
     },
@@ -55,23 +55,17 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
     },
     "claude_desktop": {
       "name": "Claude Desktop App",
-      "type": "electron_profile",
-      "path": "~/Library/Application Support/Claude",
+      "type": "sqlite",
+      "path": "~/Library/Application Support/Claude/Cookies",
       "app_name": "Claude",
-      "paths": [
-        "~/Library/Application Support/Claude/config.json",
-        "~/Library/Application Support/Claude/Cookies",
-        "~/Library/Application Support/Claude/Cookies-journal",
-        "~/Library/Application Support/Claude/DIPS",
-        "~/Library/Application Support/Claude/DIPS-wal",
-        "~/Library/Application Support/Claude/Local State",
-        "~/Library/Application Support/Claude/Preferences",
-        "~/Library/Application Support/Claude/ant-did",
-        "~/Library/Application Support/Claude/Network Persistent State",
-        "~/Library/Application Support/Claude/fcache",
-        "~/Library/Application Support/Claude/Local Storage",
-        "~/Library/Application Support/Claude/Session Storage",
-        "~/Library/Application Support/Claude/IndexedDB"
+      "keys": [
+        "sessionKey",
+        "sessionKeyLC",
+        "routingHint",
+        "lastActiveOrg",
+        "anthropic-device-id",
+        "cf_clearance",
+        "__cf_bm"
       ],
       "processes": [
         "Claude",
@@ -84,64 +78,6 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "--user-data-dir=~/Library/Application Support/Claude",
         "Claude.app/Contents/MacOS/Claude"
       ],
-      "keychain_items": [
-        {
-          "service": "Claude Safe Storage",
-          "account": "Claude Key"
-        }
-      ]
-    },
-    "codex_desktop": {
-      "name": "Codex Desktop App",
-      "type": "electron_profile",
-      "path": "~/Library/Application Support/Codex",
-      "app_name": "Codex",
-      "paths": [
-        "~/Library/Application Support/Codex/Cookies",
-        "~/Library/Application Support/Codex/Cookies-journal",
-        "~/Library/Application Support/Codex/DIPS",
-        "~/Library/Application Support/Codex/DIPS-wal",
-        "~/Library/Application Support/Codex/Local State",
-        "~/Library/Application Support/Codex/Local Storage",
-        "~/Library/Application Support/Codex/Network Persistent State",
-        "~/Library/Application Support/Codex/Preferences",
-        "~/Library/Application Support/Codex/Session Storage",
-        "~/Library/Application Support/Codex/Default/Cookies",
-        "~/Library/Application Support/Codex/Default/Cookies-journal",
-        "~/Library/Application Support/Codex/Default/DIPS",
-        "~/Library/Application Support/Codex/Default/DIPS-wal",
-        "~/Library/Application Support/Codex/Default/Local Storage",
-        "~/Library/Application Support/Codex/Default/Network Persistent State",
-        "~/Library/Application Support/Codex/Default/Preferences",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies-journal",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/DIPS",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Network Persistent State",
-        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
-        "~/Library/Application Support/OpenAI/Codex"
-      ],
-      "processes": [
-        "Codex",
-        "Codex Helper",
-        "Codex Helper (Renderer)",
-        "Codex Helper (GPU)",
-        "Codex Helper (Plugin)"
-      ],
-      "process_patterns": [
-        "--user-data-dir=~/Library/Application Support/Codex",
-        "Codex.app/Contents/MacOS/Codex"
-      ],
-      "keychain_items": [
-        {
-          "service": "Codex Safe Storage",
-          "account": "Codex"
-        },
-        {
-          "service": "Codex Safe Storage",
-          "account": "Codex Key"
-        }
-      ]
     },
     "agy": {
       "name": "Antigravity CLI (agy)",
@@ -159,7 +95,9 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
 }
 ```
 
-### Notes on Claude Code, desktop apps, and agy
+### Notes on Claude Code, Codex Desktop, Claude Desktop, and agy
+
+Codex Desktop appears to follow the same account as the Codex CLI on current macOS builds. VibeSwap therefore exposes one `codex` target named `Codex CLI/Desktop`, backed by `~/.codex/auth.json`, instead of a separate fragile Electron-state target for Codex Desktop. To switch Codex Desktop, switch the `codex` profile, fully quit Codex Desktop if it is already running, then open it again.
 
 Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as settings, cache, projects, and history. On macOS, Claude Code reads OAuth credentials from the live Keychain service `Claude Code-credentials` under the current macOS username account, so VibeSwap stores a credential snapshot in each profile and writes the selected snapshot back to that live Keychain item when switching. This should work across other macOS users and computers because VibeSwap resolves the Keychain account from the current `$USER` environment variable instead of hard-coding a local username.
 
@@ -167,9 +105,9 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
-Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save selected Application Support session files and matching Keychain items. Recent June 2026 Claude Desktop switchers either rename the full `~/Library/Application Support/Claude` data directory per profile or stage/restore a broad session set with rollback. VibeSwap uses the smaller staged-session approach by default because full app-data copies can be tens of gigabytes and are too slow for a profile save.
+Claude Desktop uses Electron/Chromium cookies on macOS. VibeSwap's `claude_desktop` target snapshots only selected encrypted rows from `~/Library/Application Support/Claude/Cookies` and restores those rows into the live database. Cookie values stay encrypted with the machine's existing Chromium Safe Storage key; VibeSwap does not decrypt or print them. A Claude Desktop profile must contain at least `sessionKey` and `lastActiveOrg`, and VibeSwap also carries companion rows such as `sessionKeyLC`, `routingHint`, `anthropic-device-id`, `cf_clearance`, and `__cf_bm` when present.
 
-Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing desktop profiles saved before the current session list was added should be re-saved while the intended account is active.
+Quit Claude Desktop before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid writing a live SQLite database. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing Claude Desktop profiles saved with the previous broad Electron profile target should be re-saved while the intended account is active.
 
 ## Usage
 

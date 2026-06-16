@@ -44,9 +44,13 @@ func ListProfiles() (map[string][]string, error) {
 
 			var profiles []string
 			for _, file := range files {
-				if file.IsDir() {
+				if file.IsDir() && targetType == config.TypeSQLite {
+					if _, err := os.Stat(filepath.Join(targetDir, file.Name(), "cookies.sqlite")); err == nil {
+						profiles = append(profiles, file.Name())
+					}
+				} else if file.IsDir() {
 					profiles = append(profiles, file.Name())
-				} else if targetType != config.TypeWrappedDir && targetType != config.TypeElectron && strings.HasSuffix(file.Name(), ".json") {
+				} else if targetType != config.TypeWrappedDir && targetType != config.TypeElectron && targetType != config.TypeSQLite && strings.HasSuffix(file.Name(), ".json") {
 					profileName := strings.TrimSuffix(file.Name(), ".json")
 					profiles = append(profiles, profileName)
 				}

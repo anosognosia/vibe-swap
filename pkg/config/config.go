@@ -13,7 +13,7 @@ const (
 	TypeFile       TargetType = "file"
 	TypeJSONKey    TargetType = "json_key"
 	TypeKeychain   TargetType = "keychain"
-	TypeSQLite     TargetType = "sqlite" // Deferred/future
+	TypeSQLite     TargetType = "sqlite"
 	TypeWrappedDir TargetType = "wrapped_dir"
 	TypeElectron   TargetType = "electron_profile"
 )
@@ -108,6 +108,10 @@ func LoadConfig() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	changed := normalizeConfig(&cfg)
+	if changed {
+		_ = SaveConfig(&cfg)
+	}
 
 	return &cfg, nil
 }
@@ -131,7 +135,7 @@ func GetDefaultConfig() *Config {
 	return &Config{
 		Targets: map[string]Target{
 			"codex": {
-				Name: "Codex CLI",
+				Name: "Codex CLI/Desktop",
 				Type: TypeFile,
 				Path: "~/.codex/auth.json",
 			},
@@ -145,71 +149,22 @@ func GetDefaultConfig() *Config {
 			},
 			"claude_desktop": {
 				Name:    "Claude Desktop App",
-				Type:    TypeElectron,
-				Path:    "~/Library/Application Support/Claude",
+				Type:    TypeSQLite,
+				Path:    "~/Library/Application Support/Claude/Cookies",
 				AppName: "Claude",
-				Paths: []string{
-					"~/Library/Application Support/Claude/config.json",
-					"~/Library/Application Support/Claude/Cookies",
-					"~/Library/Application Support/Claude/Cookies-journal",
-					"~/Library/Application Support/Claude/DIPS",
-					"~/Library/Application Support/Claude/DIPS-wal",
-					"~/Library/Application Support/Claude/Local State",
-					"~/Library/Application Support/Claude/Preferences",
-					"~/Library/Application Support/Claude/ant-did",
-					"~/Library/Application Support/Claude/Network Persistent State",
-					"~/Library/Application Support/Claude/fcache",
-					"~/Library/Application Support/Claude/Local Storage",
-					"~/Library/Application Support/Claude/Session Storage",
-					"~/Library/Application Support/Claude/IndexedDB",
+				Keys: []string{
+					"sessionKey",
+					"sessionKeyLC",
+					"routingHint",
+					"lastActiveOrg",
+					"anthropic-device-id",
+					"cf_clearance",
+					"__cf_bm",
 				},
 				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
 				ProcessPatterns: []string{
 					"--user-data-dir=~/Library/Application Support/Claude",
 					"Claude.app/Contents/MacOS/Claude",
-				},
-				KeychainItems: []KeychainItem{
-					{Service: "Claude Safe Storage", Account: "Claude Key"},
-				},
-			},
-			"codex_desktop": {
-				Name:    "Codex Desktop App",
-				Type:    TypeElectron,
-				Path:    "~/Library/Application Support/Codex",
-				AppName: "Codex",
-				Paths: []string{
-					"~/Library/Application Support/Codex/Cookies",
-					"~/Library/Application Support/Codex/Cookies-journal",
-					"~/Library/Application Support/Codex/DIPS",
-					"~/Library/Application Support/Codex/DIPS-wal",
-					"~/Library/Application Support/Codex/Local State",
-					"~/Library/Application Support/Codex/Local Storage",
-					"~/Library/Application Support/Codex/Network Persistent State",
-					"~/Library/Application Support/Codex/Preferences",
-					"~/Library/Application Support/Codex/Session Storage",
-					"~/Library/Application Support/Codex/Default/Cookies",
-					"~/Library/Application Support/Codex/Default/Cookies-journal",
-					"~/Library/Application Support/Codex/Default/DIPS",
-					"~/Library/Application Support/Codex/Default/DIPS-wal",
-					"~/Library/Application Support/Codex/Default/Local Storage",
-					"~/Library/Application Support/Codex/Default/Network Persistent State",
-					"~/Library/Application Support/Codex/Default/Preferences",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies-journal",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/DIPS",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Network Persistent State",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
-					"~/Library/Application Support/OpenAI/Codex",
-				},
-				Processes: []string{"Codex", "Codex (Service)", "Codex (Renderer)", "Codex Helper", "Codex Helper (Renderer)", "Codex Helper (GPU)", "Codex Helper (Plugin)"},
-				ProcessPatterns: []string{
-					"--user-data-dir=~/Library/Application Support/Codex",
-					"Codex.app/Contents/MacOS/Codex",
-				},
-				KeychainItems: []KeychainItem{
-					{Service: "Codex Safe Storage", Account: "Codex"},
-					{Service: "Codex Safe Storage", Account: "Codex Key"},
 				},
 			},
 			"agy": {
@@ -226,6 +181,45 @@ func GetDefaultConfig() *Config {
 			},
 		},
 	}
+}
+
+func normalizeConfig(cfg *Config) bool {
+	if cfg.Targets == nil {
+		cfg.Targets = make(map[string]Target)
+	}
+
+	defaults := GetDefaultConfig()
+	changed := false
+
+	if _, ok := cfg.Targets["codex_desktop"]; ok {
+		delete(cfg.Targets, "codex_desktop")
+		changed = true
+	}
+
+	for id, target := range defaults.Targets {
+		current, ok := cfg.Targets[id]
+		if !ok {
+			cfg.Targets[id] = target
+			changed = true
+			continue
+		}
+
+		switch id {
+		case "codex":
+			if current.Name == "Codex CLI" || current.Name == "" {
+				current.Name = target.Name
+				cfg.Targets[id] = current
+				changed = true
+			}
+		case "claude_desktop":
+			if current.Type != target.Type || current.Path != target.Path {
+				cfg.Targets[id] = target
+				changed = true
+			}
+		}
+	}
+
+	return changed
 }
 
 type ActiveState struct {

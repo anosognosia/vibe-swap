@@ -3,6 +3,7 @@ package adapter
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -535,6 +536,99 @@ func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
 		t.Fatalf("expected stale session dir to be removed, got err=%v", err)
+	}
+}
+
+func TestSQLiteAdapterSaveAndLoadClaudeCookieRows(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "vibeswap-sqlite-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	liveDB := filepath.Join(tmpDir, "Library", "Application Support", "Claude", "Cookies")
+	if err := os.MkdirAll(filepath.Dir(liveDB), 0755); err != nil {
+		t.Fatalf("failed to create app dir: %v", err)
+	}
+
+	createSQL := `
+CREATE TABLE cookies (
+  creation_utc INTEGER NOT NULL DEFAULT 0,
+  host_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  value TEXT NOT NULL DEFAULT '',
+  encrypted_value BLOB NOT NULL DEFAULT X'',
+  path TEXT NOT NULL DEFAULT '/',
+  expires_utc INTEGER NOT NULL DEFAULT 0,
+  is_secure INTEGER NOT NULL DEFAULT 1,
+  is_httponly INTEGER NOT NULL DEFAULT 1,
+  last_access_utc INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(host_key, name, path)
+);
+INSERT INTO cookies (host_key, name, encrypted_value) VALUES
+  ('.claude.ai', 'sessionKey', X'776F726B'),
+  ('.claude.ai', 'lastActiveOrg', X'6F7267'),
+  ('.claude.ai', 'routingHint', X'726F757465'),
+  ('.example.com', 'sessionKey', X'6B656570');
+`
+	if err := exec.Command("sqlite3", liveDB, createSQL).Run(); err != nil {
+		t.Fatalf("failed to create live cookie DB: %v", err)
+	}
+
+	target := config.Target{
+		Name: "Claude Desktop App",
+		Type: config.TypeSQLite,
+		Path: liveDB,
+		Keys: []string{"sessionKey", "sessionKeyLC", "routingHint", "lastActiveOrg"},
+	}
+	adp := &SQLiteAdapter{}
+	if err := adp.Save(target, "claude_desktop_test", "work"); err != nil {
+		t.Fatalf("failed to save SQLite profile: %v", err)
+	}
+
+	mutateSQL := `
+DELETE FROM cookies WHERE host_key LIKE '%.claude.ai';
+INSERT INTO cookies (host_key, name, encrypted_value) VALUES
+  ('.claude.ai', 'sessionKey', X'706572736F6E616C'),
+  ('.claude.ai', 'lastActiveOrg', X'706572736F6E616C6F7267'),
+  ('.claude.ai', '__Host-extra', X'6578747261');
+`
+	if err := exec.Command("sqlite3", liveDB, mutateSQL).Run(); err != nil {
+		t.Fatalf("failed to mutate live cookie DB: %v", err)
+	}
+
+	if err := adp.Load(target, "claude_desktop_test", "work"); err != nil {
+		t.Fatalf("failed to load SQLite profile: %v", err)
+	}
+
+	out, err := exec.Command("sqlite3", liveDB, "SELECT name || ':' || hex(encrypted_value) FROM cookies WHERE host_key = '.claude.ai' ORDER BY name;").Output()
+	if err != nil {
+		t.Fatalf("failed to inspect restored cookies: %v", err)
+	}
+	got := strings.TrimSpace(string(out))
+	want := strings.Join([]string{
+		"lastActiveOrg:6F7267",
+		"routingHint:726F757465",
+		"sessionKey:776F726B",
+	}, "\n")
+	if got != want {
+		t.Fatalf("unexpected restored Claude cookies:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+
+	out, err = exec.Command("sqlite3", liveDB, "SELECT hex(encrypted_value) FROM cookies WHERE host_key = '.example.com' AND name = 'sessionKey';").Output()
+	if err != nil {
+		t.Fatalf("failed to inspect preserved cookie: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != "6B656570" {
+		t.Fatalf("expected unrelated cookie to be preserved, got %q", strings.TrimSpace(string(out)))
 	}
 }
 

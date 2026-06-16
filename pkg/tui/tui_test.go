@@ -33,8 +33,8 @@ func TestTUIFocusFlow(t *testing.T) {
 	// Verify that target highlight is active, but profile highlight is NOT active in view
 	view := m.View()
 	// Highlight style should be applied to Codex in targets list, but not to profiles list
-	if !strings.Contains(view, "● Codex CLI") {
-		t.Error("expected Codex CLI in view")
+	if !strings.Contains(view, "● Codex CLI/Desktop") {
+		t.Error("expected Codex CLI/Desktop in view")
 	}
 
 	// 2. Send "enter" key on codex (which has profiles) -> focus should become focusProfiles
@@ -82,4 +82,3 @@ func TestTUIFocusFlow(t *testing.T) {
 		t.Errorf("expected selectedProfileIdx to remain 1, got %d", m.selectedProfileIdx)
 	}
 }
-
