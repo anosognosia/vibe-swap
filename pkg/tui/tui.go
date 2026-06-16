@@ -133,12 +133,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "tab":
 			if m.focus == focusTargets {
-				m.focus = focusProfiles
-				m.selectedProfileIdx = 0
+				targetID := m.targetIDs[m.selectedTargetIdx]
+				profiles := m.profiles[targetID]
+				if len(profiles) > 0 {
+					m.focus = focusProfiles
+					m.selectedProfileIdx = 0
+				}
 			} else {
 				m.focus = focusTargets
 			}
 			m.statusMsg = ""
+
+		case "esc", "left":
+			if m.focus == focusProfiles {
+				m.focus = focusTargets
+				m.statusMsg = ""
+			}
 
 		case "up", "k":
 			if m.focus == focusTargets {
@@ -165,7 +175,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			if m.focus == focusProfiles {
+			if m.focus == focusTargets {
+				targetID := m.targetIDs[m.selectedTargetIdx]
+				target := m.config.Targets[targetID]
+				adp, _ := adapter.GetAdapter(target.Type)
+				installed := adp != nil && adp.IsInstalled(target)
+
+				if !installed {
+					m.statusMsg = fmt.Sprintf("Target %s is not installed/configured", target.Name)
+					m.statusIsError = true
+				} else {
+					profiles := m.profiles[targetID]
+					if len(profiles) > 0 {
+						m.focus = focusProfiles
+						m.selectedProfileIdx = 0
+						m.statusMsg = ""
+					} else {
+						m.statusMsg = "No profiles saved yet. Press 's' to save active credentials."
+						m.statusIsError = false
+					}
+				}
+			} else if m.focus == focusProfiles {
 				targetID := m.targetIDs[m.selectedTargetIdx]
 				profiles := m.profiles[targetID]
 				if len(profiles) > 0 {
@@ -179,6 +209,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusIsError = false
 						m.activeState, _ = config.LoadActiveState()
 					}
+					// Return focus to targets list (back out)
+					m.focus = focusTargets
 				}
 			}
 
@@ -212,6 +244,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusIsError = false
 					}
 					m.activeState, _ = config.LoadActiveState()
+					m.focus = focusTargets
 				}
 			}
 		}
@@ -256,16 +289,12 @@ var (
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(purpleColor).
-			Padding(1).
-			Width(35).
-			Height(14)
+			Padding(1)
 
 	mainPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(tealColor).
-			Padding(1).
-			Width(45).
-			Height(14)
+			Padding(1)
 
 	selectedItemStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).
@@ -314,6 +343,30 @@ func (m model) View() string {
 		return appStyle.Render(strings.Join(views, "\n"))
 	}
 
+	// Calculate responsive panel widths and heights
+	width := m.width
+	if width == 0 {
+		width = 80 // Safe default
+	}
+	height := m.height
+	if height == 0 {
+		height = 24 // Safe default
+	}
+
+	sbWidth := width / 3
+	if sbWidth < 25 {
+		sbWidth = 25
+	}
+	mainWidth := width - sbWidth - 8
+	if mainWidth < 30 {
+		mainWidth = 30
+	}
+
+	contentHeight := height - 8
+	if contentHeight < 8 {
+		contentHeight = 8
+	}
+
 	// Sidebar (Targets)
 	var sbContent strings.Builder
 	sbContent.WriteString(headerStyle.Render("Targets"))
@@ -346,7 +399,10 @@ func (m model) View() string {
 			sbContent.WriteString(normalItemStyle.Render(line) + "\n")
 		}
 	}
-	leftPanel := sidebarStyle.Render(sbContent.String())
+	
+	// Create derived responsive style for sidebar
+	currSidebarStyle := sidebarStyle.Width(sbWidth).Height(contentHeight)
+	leftPanel := currSidebarStyle.Render(sbContent.String())
 
 	// Main Panel (Profiles)
 	var mainContent strings.Builder
@@ -386,7 +442,10 @@ func (m model) View() string {
 			}
 		}
 	}
-	rightPanel := mainPanelStyle.Render(mainContent.String())
+	
+	// Create derived responsive style for main panel
+	currMainPanelStyle := mainPanelStyle.Width(mainWidth).Height(contentHeight)
+	rightPanel := currMainPanelStyle.Render(mainContent.String())
 
 	// Join side-by-side
 	views = append(views, lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel))
@@ -405,9 +464,9 @@ func (m model) View() string {
 	// Help / Footer
 	var helpParts []string
 	if m.focus == focusTargets {
-		helpParts = append(helpParts, "[tab] Focus Profiles", "[s] Save Active", "[q] Quit")
+		helpParts = append(helpParts, "[enter] Focus Profiles", "[s] Save Active", "[q] Quit")
 	} else if m.focus == focusProfiles {
-		helpParts = append(helpParts, "[tab] Focus Targets", "[enter] Switch Target", "[a] Switch All (Global)", "[q] Quit")
+		helpParts = append(helpParts, "[esc/left] Back", "[enter] Switch Target", "[a] Switch All (Global)", "[q] Quit")
 	}
 	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
 
