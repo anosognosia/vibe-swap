@@ -11,7 +11,8 @@ It allows you to switch between accounts/tokens instantly while keeping your wor
 *   **Target Types**:
     *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`, Antigravity `oauth_creds.json`).
     *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
-    *   `keychain`: Swaps macOS Keychain generic password entries (e.g., Claude Code `Claude Code-credentials`).
+    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`). Completely avoids macOS Keychain ACL issues.
+    *   `keychain`: Swaps macOS Keychain generic password entries.
     *   `sqlite` *(Architecture designed, stubbed for future implementation)*: Swaps rows inside VS Code-based state databases (e.g., Cursor, Windsurf).
 *   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
 
@@ -99,6 +100,14 @@ vibeswap
 *   **Global switch all targets to a profile**:
     ```bash
     vibeswap profile <profile_name>
+    ```
+*   **Install/update shell integration wrapper**:
+    ```bash
+    vibeswap shell-install
+    ```
+*   **Uninstall shell integration wrapper**:
+    ```bash
+    vibeswap shell-uninstall
     ```
 
 ## Security
