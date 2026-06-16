@@ -417,9 +417,10 @@ var (
 	brandRedColor  = lipgloss.Color("#C91F26")
 	brandCyanColor = lipgloss.Color("#29AEDD")
 	whiteColor     = lipgloss.Color("#F7F5F0")
+	labelColor     = lipgloss.Color("#E8D9D7")
 	frameColor     = lipgloss.Color("#2A0B0D")
 	panelColor     = lipgloss.Color("#1A1113")
-	mutedColor     = lipgloss.Color("#7B6668")
+	mutedColor     = lipgloss.Color("#A88F91")
 	borderColor    = lipgloss.Color("#4E2326")
 	successColor   = lipgloss.Color("#278A64")
 	redColor       = lipgloss.Color("#C91F26")
@@ -428,6 +429,7 @@ var (
 	brandRedText   = lipgloss.NewStyle().Foreground(brandRedColor)
 	brandCyanText  = lipgloss.NewStyle().Foreground(brandCyanColor)
 	whiteText      = lipgloss.NewStyle().Foreground(whiteColor)
+	labelText      = lipgloss.NewStyle().Foreground(labelColor)
 	greenText      = lipgloss.NewStyle().Foreground(successColor)
 	grayText       = lipgloss.NewStyle().Foreground(mutedColor)
 	redText        = lipgloss.NewStyle().Foreground(redColor)
@@ -478,13 +480,17 @@ var (
 
 	activeItemStyle = lipgloss.NewStyle().
 			Foreground(brandCyanColor).
+			Background(panelColor).
 			Bold(true)
 
 	normalItemStyle = lipgloss.NewStyle().
+			Foreground(labelColor).
+			Background(panelColor).
 			PaddingLeft(1)
 
 	statusStyle = lipgloss.NewStyle().
 			Bold(true).
+			Background(frameColor).
 			MarginTop(1).
 			Padding(0, 1)
 
@@ -495,6 +501,9 @@ var (
 			Background(panelColor).
 			Padding(0, 1).
 			MarginTop(1)
+
+	statusRowStyle = lipgloss.NewStyle().
+			Background(frameColor)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
@@ -654,12 +663,12 @@ func (m model) View() string {
 			if m.closePrompt {
 				errorMsg += "\n" + hotkey("y", "Close Desktop App and Retry") + "  " + hotkey("n", "Cancel")
 			}
-			views = append(views, errorToastStyle.Width(width-4).Render(errorMsg))
+			views = append(views, statusRowStyle.Width(width-2).Render(errorToastStyle.Width(width-4).Render(errorMsg)))
 		} else {
-			views = append(views, statusStyle.Foreground(successColor).Render(m.statusMsg))
+			views = append(views, statusRowStyle.Width(width-2).Render(statusStyle.Foreground(successColor).Width(width-4).Render(m.statusMsg)))
 		}
 	} else {
-		views = append(views, "") // Empty spacer
+		views = append(views, statusRowStyle.Width(width-2).Render(""))
 	}
 
 	// Help / Footer
