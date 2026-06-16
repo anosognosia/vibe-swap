@@ -128,9 +128,11 @@ func GetDefaultConfig() *Config {
 				Path: "~/Library/Application Support/Codex/Default/Cookies",
 			},
 			"claude_cli": {
-				Name: "Claude Code CLI",
-				Type: TypeFile,
-				Path: "~/.claude/.credentials.json",
+				Name:         "Claude Code CLI",
+				Type:         TypeKeychain,
+				Service:      "Claude Code-credentials",
+				Account:      "edgarwongbaxter",
+				FallbackFile: "~/.claude/.credentials.json",
 			},
 			"claude_desktop": {
 				Name: "Claude Desktop App",
