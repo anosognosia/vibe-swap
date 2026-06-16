@@ -76,7 +76,7 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
 
 ### Notes on Claude Code and agy
 
-Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as settings, cache, projects, and history. On macOS, Claude Code reads OAuth credentials from the live Keychain item `Claude Code-credentials`, so VibeSwap stores a credential snapshot in each profile and writes the selected snapshot back to that live Keychain item when switching. This keeps account switching explicit while still allowing isolated Claude config directories.
+Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as settings, cache, projects, and history. On macOS, Claude Code reads OAuth credentials from the live Keychain item `Claude Code-credentials`, so VibeSwap stores a credential snapshot in each profile and writes the selected snapshot back to that live Keychain item when switching. `vibeswap switch claude_cli <profile>` only restores the selected saved snapshot; `vibeswap save claude_cli <profile>` is the operation that captures the current live Claude credential into that profile.
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 

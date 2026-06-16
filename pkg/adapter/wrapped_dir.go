@@ -103,18 +103,6 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 		return fmt.Errorf("profile directory %s does not exist", profileName)
 	}
 
-	// Before loading the new profile, save the current active profile's state (including keychain credentials).
-	state, err := config.LoadActiveState()
-	if err == nil && state.Targets[targetID] != "" && state.Targets[targetID] != profileName {
-		activeProfile := state.Targets[targetID]
-		activeProfilePath, pathErr := w.getProfilePath(targetID, activeProfile)
-		if pathErr == nil {
-			if err := w.saveKeychain(target, targetID, activeProfilePath); err != nil {
-				return err
-			}
-		}
-	}
-
 	// Check if default folder exists as a physical folder and has not been backed up
 	defaultDir := config.ExpandPath(target.Path)
 	fi, err := os.Lstat(defaultDir)
