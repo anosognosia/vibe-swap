@@ -178,7 +178,10 @@ func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, 
 
 	account := target.Account
 	if account == "" {
-		account = "default"
+		account = w.readKeychainAccount(service)
+		if account == "" {
+			account = "default"
+		}
 	}
 
 	kv := keychainValue{
@@ -224,29 +227,14 @@ func (w *WrappedDirAdapter) keychainService(target config.Target, targetID strin
 		return service
 	}
 
-	expandedConfigDir := config.ExpandPath(configDir)
-	resolvedConfigDir, err := filepath.EvalSymlinks(expandedConfigDir)
-	if err != nil {
-		resolvedConfigDir, err = filepath.Abs(expandedConfigDir)
-		if err != nil {
-			resolvedConfigDir = expandedConfigDir
-		}
-	}
+	configDir = strings.TrimRight(config.ExpandPath(configDir), string(os.PathSeparator))
+	defaultDir := strings.TrimRight(config.ExpandPath(target.Path), string(os.PathSeparator))
 
-	defaultDir := config.ExpandPath(target.Path)
-	resolvedDefaultDir, err := filepath.EvalSymlinks(defaultDir)
-	if err != nil {
-		resolvedDefaultDir, err = filepath.Abs(defaultDir)
-		if err != nil {
-			resolvedDefaultDir = defaultDir
-		}
-	}
-
-	if resolvedConfigDir == resolvedDefaultDir {
+	if configDir == defaultDir {
 		return service
 	}
 
-	sum := sha256.Sum256([]byte(resolvedConfigDir))
+	sum := sha256.Sum256([]byte(configDir))
 	return service + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
@@ -267,6 +255,29 @@ func (w *WrappedDirAdapter) readFromKeychain(service string) (string, error) {
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+func (w *WrappedDirAdapter) readKeychainAccount(service string) string {
+	cmd := exec.Command("security", "find-generic-password", "-s", service)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+
+	for _, line := range strings.Split(output.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"acct"<blob>=`) {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return ""
+		}
+		return strings.Trim(parts[1], `"`)
+	}
+	return ""
 }
 
 func (w *WrappedDirAdapter) writeToKeychain(service, account, token string) error {

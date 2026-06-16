@@ -420,11 +420,7 @@ func TestWrappedDirAdapterClaudeKeychainService(t *testing.T) {
 		t.Fatalf("expected default service, got %q", defaultService)
 	}
 
-	resolvedProfileDir, err := filepath.EvalSymlinks(profileDir)
-	if err != nil {
-		t.Fatalf("failed to resolve profile dir: %v", err)
-	}
-	sum := sha256.Sum256([]byte(resolvedProfileDir))
+	sum := sha256.Sum256([]byte(profileDir))
 	expectedProfileService := "Claude Code-credentials-" + hex.EncodeToString(sum[:])[:8]
 	profileService := wa.keychainService(target, "claude_cli", profileDir)
 	if profileService != expectedProfileService {
