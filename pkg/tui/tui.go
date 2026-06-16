@@ -247,6 +247,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.focus = focusTargets
 				}
 			}
+
+		case "d":
+			// Delete selected profile
+			if m.focus == focusProfiles {
+				targetID := m.targetIDs[m.selectedTargetIdx]
+				profiles := m.profiles[targetID]
+				if len(profiles) > 0 {
+					profileName := profiles[m.selectedProfileIdx]
+					err := engine.DeleteProfile(targetID, profileName)
+					if err != nil {
+						m.statusMsg = fmt.Sprintf("Error deleting profile: %v", err)
+						m.statusIsError = true
+					} else {
+						m.statusMsg = fmt.Sprintf("Deleted profile %q", profileName)
+						m.statusIsError = false
+						// Reload profiles and active state
+						m.profiles, _ = engine.ListProfiles()
+						m.activeState, _ = config.LoadActiveState()
+
+						// Adjust selection idx if it's out of bounds now
+						newProfiles := m.profiles[targetID]
+						if len(newProfiles) == 0 {
+							m.focus = focusTargets
+						} else if m.selectedProfileIdx >= len(newProfiles) {
+							m.selectedProfileIdx = len(newProfiles) - 1
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -472,7 +501,7 @@ func (m model) View() string {
 	if m.focus == focusTargets {
 		helpParts = append(helpParts, "[enter] Focus Profiles", "[s] Save Active", "[q] Quit")
 	} else if m.focus == focusProfiles {
-		helpParts = append(helpParts, "[esc/left] Back", "[enter] Switch Target", "[a] Switch All (Global)", "[q] Quit")
+		helpParts = append(helpParts, "[esc/left] Back", "[enter] Switch Target", "[d] Delete", "[a] Switch All (Global)", "[q] Quit")
 	}
 	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
 

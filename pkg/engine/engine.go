@@ -178,3 +178,41 @@ func SwitchAllTargets(profileName string) error {
 
 	return nil
 }
+
+// DeleteProfile deletes a saved profile for targetID.
+func DeleteProfile(targetID, profileName string) error {
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return err
+	}
+
+	// Check if directory profile exists (wrapped_dir)
+	dirPath := filepath.Join(profilesDir, targetID, profileName)
+	fi, err := os.Stat(dirPath)
+	if err == nil && fi.IsDir() {
+		if err := os.RemoveAll(dirPath); err != nil {
+			return fmt.Errorf("failed to delete profile directory: %v", err)
+		}
+	} else {
+		// Check if file profile exists (.json)
+		filePath := filepath.Join(profilesDir, targetID, profileName+".json")
+		if _, err := os.Stat(filePath); err == nil {
+			if err := os.Remove(filePath); err != nil {
+				return fmt.Errorf("failed to delete profile file: %v", err)
+			}
+		} else {
+			return fmt.Errorf("profile %s not found for target %s", profileName, targetID)
+		}
+	}
+
+	// Clean active state if this was the active profile
+	state, err := config.LoadActiveState()
+	if err == nil {
+		if state.Targets[targetID] == profileName {
+			delete(state.Targets, targetID)
+			_ = config.SaveActiveState(state)
+		}
+	}
+
+	return nil
+}

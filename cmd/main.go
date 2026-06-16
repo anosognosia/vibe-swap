@@ -218,7 +218,25 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
+	var deleteCmd = &cobra.Command{
+		Use:   "delete [target] [profile]",
+		Short: "Delete a saved profile for a target",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			targetID := args[0]
+			profileName := args[1]
+
+			err := engine.DeleteProfile(targetID, profileName)
+			if err != nil {
+				fmt.Printf("%s Failed to delete profile: %v\n", red.Render("✖"), err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("%s Successfully deleted profile %q for %s\n", green.Render("✔"), profileName, targetID)
+		},
+	}
+
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, deleteCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
