@@ -18,12 +18,12 @@ import (
 var (
 	interactiveFlag bool
 
-	// Styles
-	purple = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
-	teal   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D2FF"))
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("#00E676"))
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5252"))
-	gray   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7A89"))
+	// Brand Colors: Solo Cup Red (#C62828) & Cyan Ball (#00B0FF)
+	brandRed  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C62828")).Bold(true)
+	brandCyan = lipgloss.NewStyle().Foreground(lipgloss.Color("#00B0FF"))
+	green     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00E676"))
+	red       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5252"))
+	gray      = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7A89"))
 )
 
 func main() {
@@ -66,7 +66,7 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 				return
 			}
 
-			fmt.Println(purple.Render("\n--- VibeSwap Targets & Profiles ---\n"))
+			fmt.Println(brandRed.Render("\n--- VibeSwap Targets & Profiles ---\n"))
 
 			// Sort targets for deterministic output
 			var targetIDs []string
@@ -85,13 +85,13 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 					statusBullet = green.Render("●")
 				}
 
-				fmt.Printf("%s %s (%s)\n", statusBullet, purple.Render(target.Name), targetID)
+				fmt.Printf("%s %s (%s)\n", statusBullet, brandRed.Render(target.Name), targetID)
 				
 				activeProfile := state.Targets[targetID]
 				if activeProfile == "" {
 					activeProfile = gray.Render("none")
 				} else {
-					activeProfile = teal.Render(activeProfile)
+					activeProfile = brandCyan.Render(activeProfile)
 				}
 				fmt.Printf("  Active Profile: %s\n", activeProfile)
 

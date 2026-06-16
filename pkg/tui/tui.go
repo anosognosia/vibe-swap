@@ -254,55 +254,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 var (
-	// Colors
-	purpleColor  = lipgloss.Color("#7D56F4")
-	tealColor    = lipgloss.Color("#00D2FF")
-	emeraldColor = lipgloss.Color("#00E676")
-	grayColor    = lipgloss.Color("#6C7A89")
-	redColor     = lipgloss.Color("#FF5252")
+	// Brand Colors: Solo Cup Red (#C62828) & Cyan Ball (#00B0FF)
+	brandRedColor  = lipgloss.Color("#C62828")
+	brandCyanColor = lipgloss.Color("#00B0FF")
+	greenColor     = lipgloss.Color("#00E676")
+	grayColor      = lipgloss.Color("#4A5568")
+	redColor       = lipgloss.Color("#FF5252")
 
 	// Text Styles for rendering colored text
-	purpleText  = lipgloss.NewStyle().Foreground(purpleColor)
-	tealText    = lipgloss.NewStyle().Foreground(tealColor)
-	emeraldText = lipgloss.NewStyle().Foreground(emeraldColor)
-	grayText    = lipgloss.NewStyle().Foreground(grayColor)
-	redText     = lipgloss.NewStyle().Foreground(redColor)
+	brandRedText  = lipgloss.NewStyle().Foreground(brandRedColor)
+	brandCyanText = lipgloss.NewStyle().Foreground(brandCyanColor)
+	greenText     = lipgloss.NewStyle().Foreground(greenColor)
+	grayText      = lipgloss.NewStyle().Foreground(grayColor)
+	redText       = lipgloss.NewStyle().Foreground(redColor)
 
 	appStyle = lipgloss.NewStyle().
 			Padding(1, 2).
-			Background(lipgloss.Color("#121214")).
+			Background(lipgloss.Color("#000000")).
 			Foreground(lipgloss.Color("#FFFFFF"))
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(purpleColor).
+			Background(brandRedColor).
 			Padding(0, 2).
 			MarginBottom(1)
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(tealColor).
+			Foreground(brandCyanColor).
 			Underline(true).
 			MarginBottom(1)
 
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(purpleColor).
 			Padding(1)
 
 	mainPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(tealColor).
 			Padding(1)
 
 	selectedItemStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(purpleColor).
+				Background(brandRedColor).
 				PaddingLeft(1)
 
 	activeItemStyle = lipgloss.NewStyle().
-			Foreground(emeraldColor).
+			Foreground(brandCyanColor).
 			Bold(true)
 
 	normalItemStyle = lipgloss.NewStyle().
@@ -319,7 +317,7 @@ var (
 
 	inputModalStyle = lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
-			BorderForeground(purpleColor).
+			BorderForeground(brandRedColor).
 			Padding(1, 2).
 			Width(45).
 			Height(7).
@@ -379,7 +377,7 @@ func (m model) View() string {
 
 		bullet := "  "
 		if installed {
-			bullet = emeraldText.Render("● ")
+			bullet = brandCyanText.Render("● ")
 		} else {
 			bullet = grayText.Render("○ ")
 		}
@@ -388,7 +386,7 @@ func (m model) View() string {
 		if activeProfile == "" {
 			activeProfile = grayText.Render("none")
 		} else {
-			activeProfile = tealText.Render(activeProfile)
+			activeProfile = brandCyanText.Render(activeProfile)
 		}
 
 		line := fmt.Sprintf("%s%s (%s)", bullet, target.Name, activeProfile)
@@ -400,8 +398,12 @@ func (m model) View() string {
 		}
 	}
 	
-	// Create derived responsive style for sidebar
-	currSidebarStyle := sidebarStyle.Width(sbWidth).Height(contentHeight)
+	// Create derived responsive style for sidebar with dynamic focus border
+	sbBorderColor := grayColor
+	if m.focus == focusTargets {
+		sbBorderColor = brandCyanColor
+	}
+	currSidebarStyle := sidebarStyle.BorderForeground(sbBorderColor).Width(sbWidth).Height(contentHeight)
 	leftPanel := currSidebarStyle.Render(sbContent.String())
 
 	// Main Panel (Profiles)
@@ -426,7 +428,7 @@ func (m model) View() string {
 				activeMarker := "  "
 				isCurrentlyActive := profile == activeProfile
 				if isCurrentlyActive {
-					activeMarker = emeraldText.Render("✔ ")
+					activeMarker = brandCyanText.Render("✔ ")
 				}
 
 				line := fmt.Sprintf("%s%s", activeMarker, profile)
@@ -443,8 +445,12 @@ func (m model) View() string {
 		}
 	}
 	
-	// Create derived responsive style for main panel
-	currMainPanelStyle := mainPanelStyle.Width(mainWidth).Height(contentHeight)
+	// Create derived responsive style for main panel with dynamic focus border
+	mainBorderColor := grayColor
+	if m.focus == focusProfiles {
+		mainBorderColor = brandCyanColor
+	}
+	currMainPanelStyle := mainPanelStyle.BorderForeground(mainBorderColor).Width(mainWidth).Height(contentHeight)
 	rightPanel := currMainPanelStyle.Render(mainContent.String())
 
 	// Join side-by-side
@@ -452,7 +458,7 @@ func (m model) View() string {
 
 	// Status Message
 	if m.statusMsg != "" {
-		style := statusStyle.Foreground(emeraldColor)
+		style := statusStyle.Foreground(greenColor)
 		if m.statusIsError {
 			style = statusStyle.Foreground(redColor)
 		}

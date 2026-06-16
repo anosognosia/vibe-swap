@@ -1,7 +1,7 @@
 # VibeSwap
 
 <p align="center">
-  <img src="assets/vibeswap.png" alt="VibeSwap Logo" width="250" />
+  <img src="assets/vibeswap.png" alt="VibeSwap Logo" width="500" />
 </p>
 
 VibeSwap is a small, lightweight, and performant account and token switcher for AI vibe coding harnesses (Cursor, Windsurf, Claude Code, etc.) and coding CLIs (Codex, Antigravity/agy). 
