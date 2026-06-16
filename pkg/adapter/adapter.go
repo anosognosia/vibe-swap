@@ -14,6 +14,10 @@ type Adapter interface {
 	IsInstalled(target config.Target) bool
 }
 
+type ProcessCloser interface {
+	CloseProcesses(target config.Target) ([]string, error)
+}
+
 func GetAdapter(targetType config.TargetType) (Adapter, error) {
 	switch targetType {
 	case config.TypeFile:

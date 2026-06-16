@@ -124,6 +124,31 @@ func SwitchProfile(targetID, profileName string) error {
 	return nil
 }
 
+// CloseTargetProcesses asks a target adapter to close known app processes that block safe writes.
+func CloseTargetProcesses(targetID string) ([]string, error) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	target, exists := cfg.Targets[targetID]
+	if !exists {
+		return nil, fmt.Errorf("target not found: %s", targetID)
+	}
+
+	adp, err := adapter.GetAdapter(target.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	closer, ok := adp.(adapter.ProcessCloser)
+	if !ok {
+		return nil, fmt.Errorf("target %s does not support closing blocking processes", targetID)
+	}
+
+	return closer.CloseProcesses(target)
+}
+
 // SwitchAllTargets switches all configured and installed targets to the given profile name.
 func SwitchAllTargets(profileName string) error {
 	cfg, err := config.LoadConfig()

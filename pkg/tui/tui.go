@@ -41,6 +41,10 @@ type model struct {
 	renameOldName      string
 	statusMsg          string
 	statusIsError      bool
+	closePrompt        bool
+	pendingAction      string
+	pendingTargetID    string
+	pendingProfileName string
 	width              int
 	height             int
 }
@@ -116,7 +120,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.inputMode == inputModeRename {
 					err := engine.RenameProfile(targetID, m.renameOldName, name)
 					if err != nil {
-						m.statusMsg = fmt.Sprintf("Error renaming profile: %v", err)
+						m.statusMsg = fmt.Sprintf("renaming profile failed: %v", err)
 						m.statusIsError = true
 					} else {
 						m.statusMsg = fmt.Sprintf("Renamed profile %q to %q", m.renameOldName, name)
@@ -129,11 +133,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					err := engine.SaveProfile(targetID, name)
 					if err != nil {
-						m.statusMsg = fmt.Sprintf("Error saving profile: %v", err)
-						m.statusIsError = true
+						m = m.setActionError("save", targetID, name, fmt.Sprintf("saving profile failed: %v", err), err)
 					} else {
 						m.statusMsg = fmt.Sprintf("Saved active credentials as profile %q", name)
 						m.statusIsError = false
+						m.clearClosePrompt()
 						m.profiles, _ = engine.ListProfiles()
 						m.activeState, _ = config.LoadActiveState()
 						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
@@ -159,6 +163,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
+		}
+
+		if m.closePrompt {
+			switch msg.String() {
+			case "y":
+				return m.closeProcessesAndRetry(), nil
+			case "n", "esc":
+				m.clearClosePrompt()
+				m.statusMsg = "Cancelled closing desktop app processes"
+				m.statusIsError = false
+				return m, nil
+			default:
+				return m, nil
+			}
 		}
 
 		switch msg.String() {
@@ -233,11 +251,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					profileName := profiles[m.selectedProfileIdx]
 					err := engine.SwitchProfile(targetID, profileName)
 					if err != nil {
-						m.statusMsg = fmt.Sprintf("Error switching: %v", err)
-						m.statusIsError = true
+						m = m.setActionError("switch", targetID, profileName, fmt.Sprintf("switching failed: %v", err), err)
 					} else {
 						m.statusMsg = fmt.Sprintf("Switched %s to profile %q", targetID, profileName)
 						m.statusIsError = false
+						m.clearClosePrompt()
 						m.activeState, _ = config.LoadActiveState()
 					}
 					// Return focus to targets list (back out)
@@ -287,7 +305,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					profileName := profiles[m.selectedProfileIdx]
 					err := engine.SwitchAllTargets(profileName)
 					if err != nil {
-						m.statusMsg = fmt.Sprintf("Global switch warning/error: %v", err)
+						m.statusMsg = fmt.Sprintf("global switch failed: %v", err)
 						m.statusIsError = true
 					} else {
 						m.statusMsg = fmt.Sprintf("Switched all applicable targets to profile %q", profileName)
@@ -307,7 +325,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					profileName := profiles[m.selectedProfileIdx]
 					err := engine.DeleteProfile(targetID, profileName)
 					if err != nil {
-						m.statusMsg = fmt.Sprintf("Error deleting profile: %v", err)
+						m.statusMsg = fmt.Sprintf("deleting profile failed: %v", err)
 						m.statusIsError = true
 					} else {
 						m.statusMsg = fmt.Sprintf("Deleted profile %q", profileName)
@@ -330,6 +348,68 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) setActionError(action, targetID, profileName, message string, err error) model {
+	m.statusMsg = message
+	m.statusIsError = true
+	m.closePrompt = isProcessGuardError(err)
+	if m.closePrompt {
+		m.pendingAction = action
+		m.pendingTargetID = targetID
+		m.pendingProfileName = profileName
+	}
+	return m
+}
+
+func (m *model) clearClosePrompt() {
+	m.closePrompt = false
+	m.pendingAction = ""
+	m.pendingTargetID = ""
+	m.pendingProfileName = ""
+}
+
+func (m model) closeProcessesAndRetry() model {
+	targetID := m.pendingTargetID
+	profileName := m.pendingProfileName
+	action := m.pendingAction
+	m.clearClosePrompt()
+
+	closed, err := engine.CloseTargetProcesses(targetID)
+	if err != nil {
+		m.statusMsg = fmt.Sprintf("closing desktop app processes failed: %v", err)
+		m.statusIsError = true
+		return m
+	}
+
+	switch action {
+	case "save":
+		err = engine.SaveProfile(targetID, profileName)
+	case "switch":
+		err = engine.SwitchProfile(targetID, profileName)
+	default:
+		err = fmt.Errorf("unknown pending action %q", action)
+	}
+	if err != nil {
+		m = m.setActionError(action, targetID, profileName, fmt.Sprintf("%s failed after closing desktop app processes: %v", action, err), err)
+		return m
+	}
+
+	m.profiles, _ = engine.ListProfiles()
+	m.activeState, _ = config.LoadActiveState()
+	if action == "save" {
+		m.selectedProfileIdx = profileIndex(m.profiles[targetID], profileName)
+		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and saved profile %q", len(closed), profileName)
+	} else {
+		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and switched %s to profile %q", len(closed), targetID, profileName)
+	}
+	m.statusIsError = false
+	m.focus = focusTargets
+	return m
+}
+
+func isProcessGuardError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "desktop app processes are running")
 }
 
 var (
@@ -395,6 +475,14 @@ var (
 			Bold(true).
 			MarginTop(1).
 			Padding(0, 1)
+
+	errorToastStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(redColor).
+			Foreground(whiteColor).
+			Background(panelColor).
+			Padding(0, 1).
+			MarginTop(1)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
@@ -548,11 +636,15 @@ func (m model) View() string {
 
 	// Status Message
 	if m.statusMsg != "" {
-		style := statusStyle.Foreground(successColor)
 		if m.statusIsError {
-			style = statusStyle.Foreground(redColor)
+			errorMsg := "Error: " + m.statusMsg
+			if m.closePrompt {
+				errorMsg += "\n" + hotkey("y", "Close Desktop App and Retry") + "  " + hotkey("n", "Cancel")
+			}
+			views = append(views, errorToastStyle.Width(width-4).Render(errorMsg))
+		} else {
+			views = append(views, statusStyle.Foreground(successColor).Render(m.statusMsg))
 		}
-		views = append(views, style.Render(m.statusMsg))
 	} else {
 		views = append(views, "") // Empty spacer
 	}

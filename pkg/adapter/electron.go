@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 	"vibeswap/pkg/config"
 )
 
@@ -190,16 +192,96 @@ func (e *ElectronAdapter) IsInstalled(target config.Target) bool {
 
 func (e *ElectronAdapter) runningProcesses(target config.Target) []string {
 	var running []string
+	seen := make(map[string]struct{})
+
+	if len(target.ProcessPatterns) > 0 {
+		for _, proc := range e.processesForPatterns(target.ProcessPatterns) {
+			label := "matching " + proc.Pattern
+			if _, ok := seen[label]; !ok {
+				running = append(running, label)
+				seen[label] = struct{}{}
+			}
+		}
+		return running
+	}
+
 	for _, name := range target.Processes {
 		if name == "" {
 			continue
 		}
 		cmd := exec.Command("pgrep", "-x", name)
 		if err := cmd.Run(); err == nil {
-			running = append(running, name)
+			if _, ok := seen[name]; !ok {
+				running = append(running, name)
+				seen[name] = struct{}{}
+			}
 		}
 	}
 	return running
+}
+
+func (e *ElectronAdapter) CloseProcesses(target config.Target) ([]string, error) {
+	if len(target.ProcessPatterns) == 0 {
+		return nil, fmt.Errorf("no closeable desktop process patterns configured")
+	}
+
+	processes := e.processesForPatterns(target.ProcessPatterns)
+	if len(processes) == 0 {
+		return nil, nil
+	}
+
+	currentPID := strconv.Itoa(os.Getpid())
+	var closed []string
+	var failures []string
+	for _, proc := range processes {
+		if proc.PID == "" || proc.PID == currentPID {
+			continue
+		}
+		if err := exec.Command("kill", proc.PID).Run(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s (%v)", proc.PID, err))
+			continue
+		}
+		closed = append(closed, fmt.Sprintf("%s matching %s", proc.PID, proc.Pattern))
+	}
+
+	if len(failures) > 0 {
+		return closed, fmt.Errorf("failed to close desktop processes: %s", strings.Join(failures, ", "))
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	return closed, nil
+}
+
+type desktopProcess struct {
+	PID     string
+	Pattern string
+}
+
+func (e *ElectronAdapter) processesForPatterns(patterns []string) []desktopProcess {
+	var processes []desktopProcess
+	seen := make(map[string]struct{})
+	for _, pattern := range patterns {
+		pattern = config.ExpandPath(pattern)
+		if pattern == "" {
+			continue
+		}
+		out, err := exec.Command("pgrep", "-f", pattern).Output()
+		if err != nil {
+			continue
+		}
+		for _, pid := range strings.Fields(string(out)) {
+			if pid == "" {
+				continue
+			}
+			key := pid + "\x00" + pattern
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			processes = append(processes, desktopProcess{PID: pid, Pattern: pattern})
+			seen[key] = struct{}{}
+		}
+	}
+	return processes
 }
 
 func (e *ElectronAdapter) readKeychain(service, account string) (string, error) {
