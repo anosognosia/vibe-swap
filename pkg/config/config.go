@@ -35,6 +35,7 @@ type Target struct {
 	Keys            []string       `json:"keys,omitempty"`             // For sqlite type (future)
 	EnvVar          string         `json:"env_var,omitempty"`          // For wrapped_dir type
 	Binary          string         `json:"binary,omitempty"`           // For wrapped_dir type
+	AppName         string         `json:"app_name,omitempty"`         // For macOS desktop app guards
 	Processes       []string       `json:"processes,omitempty"`        // For desktop app process guards
 	ProcessPatterns []string       `json:"process_patterns,omitempty"` // For desktop app full command-line guards
 	KeychainItems   []KeychainItem `json:"keychain_items,omitempty"`   // For desktop app safe-storage entries
@@ -143,23 +144,12 @@ func GetDefaultConfig() *Config {
 				Service: "Claude Code-credentials",
 			},
 			"claude_desktop": {
-				Name: "Claude Desktop App",
-				Type: TypeElectron,
-				Path: "~/Library/Application Support/Claude",
+				Name:    "Claude Desktop App",
+				Type:    TypeElectron,
+				Path:    "~/Library/Application Support/Claude",
+				AppName: "Claude",
 				Paths: []string{
-					"~/Library/Application Support/Claude/config.json",
-					"~/Library/Application Support/Claude/Cookies",
-					"~/Library/Application Support/Claude/Cookies-journal",
-					"~/Library/Application Support/Claude/DIPS",
-					"~/Library/Application Support/Claude/DIPS-wal",
-					"~/Library/Application Support/Claude/Local State",
-					"~/Library/Application Support/Claude/Preferences",
-					"~/Library/Application Support/Claude/ant-did",
-					"~/Library/Application Support/Claude/Network Persistent State",
-					"~/Library/Application Support/Claude/fcache",
-					"~/Library/Application Support/Claude/Local Storage",
-					"~/Library/Application Support/Claude/Session Storage",
-					"~/Library/Application Support/Claude/IndexedDB",
+					"~/Library/Application Support/Claude",
 				},
 				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
 				ProcessPatterns: []string{
@@ -171,32 +161,12 @@ func GetDefaultConfig() *Config {
 				},
 			},
 			"codex_desktop": {
-				Name: "Codex Desktop App",
-				Type: TypeElectron,
-				Path: "~/Library/Application Support/Codex",
+				Name:    "Codex Desktop App",
+				Type:    TypeElectron,
+				Path:    "~/Library/Application Support/Codex",
+				AppName: "Codex",
 				Paths: []string{
-					"~/Library/Application Support/Codex/Cookies",
-					"~/Library/Application Support/Codex/Cookies-journal",
-					"~/Library/Application Support/Codex/DIPS",
-					"~/Library/Application Support/Codex/DIPS-wal",
-					"~/Library/Application Support/Codex/Local State",
-					"~/Library/Application Support/Codex/Local Storage",
-					"~/Library/Application Support/Codex/Network Persistent State",
-					"~/Library/Application Support/Codex/Preferences",
-					"~/Library/Application Support/Codex/Session Storage",
-					"~/Library/Application Support/Codex/Default/Cookies",
-					"~/Library/Application Support/Codex/Default/Cookies-journal",
-					"~/Library/Application Support/Codex/Default/DIPS",
-					"~/Library/Application Support/Codex/Default/DIPS-wal",
-					"~/Library/Application Support/Codex/Default/Local Storage",
-					"~/Library/Application Support/Codex/Default/Network Persistent State",
-					"~/Library/Application Support/Codex/Default/Preferences",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies-journal",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/DIPS",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Network Persistent State",
-					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
+					"~/Library/Application Support/Codex",
 					"~/Library/Application Support/OpenAI/Codex",
 				},
 				Processes: []string{"Codex", "Codex (Service)", "Codex (Renderer)", "Codex Helper", "Codex Helper (Renderer)", "Codex Helper (GPU)", "Codex Helper (Plugin)"},

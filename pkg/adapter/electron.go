@@ -141,6 +141,11 @@ func (e *ElectronAdapter) Load(target config.Target, targetID string, profileNam
 	for _, configuredPath := range prof.Paths {
 		profilePaths[configuredPath] = struct{}{}
 	}
+	if target.Path != "" && targetUsesWholeRoot(target) {
+		if _, ok := profilePaths[target.Path]; !ok {
+			return fmt.Errorf("profile %q was saved with an older partial desktop snapshot; sign in with the intended desktop account and save this profile again before switching", profileName)
+		}
+	}
 
 	for _, configuredPath := range target.Paths {
 		if _, ok := profilePaths[configuredPath]; ok {
@@ -209,6 +214,12 @@ func (e *ElectronAdapter) runningProcesses(target config.Target) []string {
 	var running []string
 	seen := make(map[string]struct{})
 
+	if target.AppName != "" && e.desktopAppRunning(target.AppName) {
+		label := target.AppName + " app"
+		running = append(running, label)
+		seen[label] = struct{}{}
+	}
+
 	if len(target.ProcessPatterns) > 0 {
 		for _, proc := range e.processesForPatterns(target.ProcessPatterns) {
 			label := "matching " + proc.Pattern
@@ -236,17 +247,30 @@ func (e *ElectronAdapter) runningProcesses(target config.Target) []string {
 }
 
 func (e *ElectronAdapter) CloseProcesses(target config.Target) ([]string, error) {
-	if len(target.ProcessPatterns) == 0 {
+	if target.AppName == "" && len(target.ProcessPatterns) == 0 {
 		return nil, fmt.Errorf("no closeable desktop process patterns configured")
+	}
+
+	var closed []string
+	if target.AppName != "" && e.desktopAppRunning(target.AppName) {
+		if err := exec.Command("osascript", "-e", fmt.Sprintf(`tell application "%s" to quit`, target.AppName)).Run(); err != nil {
+			return nil, fmt.Errorf("failed to ask %s to quit: %w", target.AppName, err)
+		}
+		closed = append(closed, target.AppName+" app")
+		for i := 0; i < 20 && e.desktopAppRunning(target.AppName); i++ {
+			time.Sleep(250 * time.Millisecond)
+		}
+		if e.desktopAppRunning(target.AppName) {
+			return closed, fmt.Errorf("%s is still running after quit request", target.AppName)
+		}
 	}
 
 	processes := e.processesForPatterns(target.ProcessPatterns)
 	if len(processes) == 0 {
-		return nil, nil
+		return closed, nil
 	}
 
 	currentPID := strconv.Itoa(os.Getpid())
-	var closed []string
 	var failures []string
 	for _, proc := range processes {
 		if proc.PID == "" || proc.PID == currentPID {
@@ -265,6 +289,17 @@ func (e *ElectronAdapter) CloseProcesses(target config.Target) ([]string, error)
 
 	time.Sleep(500 * time.Millisecond)
 	return closed, nil
+}
+
+func (e *ElectronAdapter) desktopAppRunning(appName string) bool {
+	if appName == "" {
+		return false
+	}
+	out, err := exec.Command("osascript", "-e", fmt.Sprintf(`application "%s" is running`, appName)).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
 }
 
 type desktopProcess struct {
@@ -338,7 +373,9 @@ func (e *ElectronAdapter) writeKeychain(service, account, token string) error {
 func electronRelPath(root, path string) (string, error) {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
-	if rel, err := filepath.Rel(root, path); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
+	if rel, err := filepath.Rel(root, path); err == nil && rel == "." {
+		return rel, nil
+	} else if err == nil && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != ".." {
 		return rel, nil
 	}
 	volume := filepath.VolumeName(path)
@@ -348,4 +385,14 @@ func electronRelPath(root, path string) (string, error) {
 		return "", fmt.Errorf("cannot derive profile path for %s", root)
 	}
 	return filepath.Join("_external", path), nil
+}
+
+func targetUsesWholeRoot(target config.Target) bool {
+	root := config.ExpandPath(target.Path)
+	for _, configuredPath := range target.Paths {
+		if config.ExpandPath(configuredPath) == root {
+			return true
+		}
+	}
+	return false
 }
