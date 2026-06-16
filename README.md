@@ -60,8 +60,14 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "paths": [
         "~/Library/Application Support/Claude/config.json",
         "~/Library/Application Support/Claude/Cookies",
+        "~/Library/Application Support/Claude/Cookies-journal",
+        "~/Library/Application Support/Claude/DIPS",
+        "~/Library/Application Support/Claude/DIPS-wal",
         "~/Library/Application Support/Claude/Local State",
         "~/Library/Application Support/Claude/Preferences",
+        "~/Library/Application Support/Claude/ant-did",
+        "~/Library/Application Support/Claude/Network Persistent State",
+        "~/Library/Application Support/Claude/fcache",
         "~/Library/Application Support/Claude/Local Storage",
         "~/Library/Application Support/Claude/Session Storage",
         "~/Library/Application Support/Claude/IndexedDB"
@@ -72,6 +78,9 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "Claude Helper (Renderer)",
         "Claude Helper (GPU)",
         "Claude Helper (Plugin)"
+      ],
+      "process_patterns": [
+        "--user-data-dir=~/Library/Application Support/Claude"
       ],
       "keychain_items": [
         {
@@ -87,7 +96,9 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "paths": [
         "~/Library/Application Support/Codex/Cookies",
         "~/Library/Application Support/Codex/Local State",
+        "~/Library/Application Support/Codex/Local Storage",
         "~/Library/Application Support/Codex/Preferences",
+        "~/Library/Application Support/Codex/Session Storage",
         "~/Library/Application Support/Codex/Default/Cookies",
         "~/Library/Application Support/Codex/Default/Local Storage",
         "~/Library/Application Support/Codex/Default/Preferences",
@@ -102,6 +113,9 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "Codex Helper (Renderer)",
         "Codex Helper (GPU)",
         "Codex Helper (Plugin)"
+      ],
+      "process_patterns": [
+        "--user-data-dir=~/Library/Application Support/Codex"
       ],
       "keychain_items": [
         {
@@ -138,7 +152,9 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
-Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save both selected Application Support files and matching Keychain items. Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files.
+Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save both selected Application Support files and matching Keychain items. The Claude Desktop target tracks the same broad session items used by recent June 2026 Claude Desktop switchers, including cookie journals, `DIPS`, `ant-did`, `Network Persistent State`, `fcache`, `Local Storage`, `Session Storage`, and `IndexedDB`.
+
+Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by its Electron `--user-data-dir`, it asks whether to close the desktop app and retry. Existing desktop profiles saved before these tracked paths were added should be re-saved while the intended account is active.
 
 ## Usage
 
