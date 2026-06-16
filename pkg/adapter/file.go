@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"vibeswap/pkg/config"
 )
 
@@ -34,10 +35,43 @@ func (f *FileAdapter) Save(target config.Target, targetID string, profileName st
 		return err
 	}
 
+	// Resolve all paths to save
+	var paths []string
 	if len(target.Paths) > 0 {
+		paths = target.Paths
+	} else if target.Path != "" {
+		expanded := config.ExpandPath(target.Path)
+		fi, err := os.Stat(expanded)
+		if err == nil && fi.IsDir() {
+			// Walk directory recursively to get all files
+			err = filepath.Walk(expanded, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !info.IsDir() {
+					home, err := os.UserHomeDir()
+					var unexpanded string
+					if err == nil && strings.HasPrefix(path, home) {
+						unexpanded = "~" + strings.TrimPrefix(path, home)
+					} else {
+						unexpanded = path
+					}
+					paths = append(paths, unexpanded)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		} else {
+			paths = []string{target.Path}
+		}
+	}
+
+	if len(paths) > 1 {
 		// Multi-file profile
 		prof := MultiFileProfile{Files: make(map[string]string)}
-		for _, p := range target.Paths {
+		for _, p := range paths {
 			expanded := config.ExpandPath(p)
 			data, err := os.ReadFile(expanded)
 			if err != nil {
@@ -50,11 +84,13 @@ func (f *FileAdapter) Save(target config.Target, targetID string, profileName st
 			return err
 		}
 		return os.WriteFile(destPath, data, 0600)
+	} else if len(paths) == 1 {
+		// Single-file profile
+		srcPath := config.ExpandPath(paths[0])
+		return copyFile(srcPath, destPath)
 	}
 
-	// Single-file profile
-	srcPath := config.ExpandPath(target.Path)
-	return copyFile(srcPath, destPath)
+	return fmt.Errorf("no files found to save for target %s", targetID)
 }
 
 func (f *FileAdapter) Load(target config.Target, targetID string, profileName string) error {
@@ -63,16 +99,24 @@ func (f *FileAdapter) Load(target config.Target, targetID string, profileName st
 		return err
 	}
 
-	if len(target.Paths) > 0 {
-		// Multi-file profile
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return err
+	// Clean up destination directory if target.Path is a directory
+	if target.Path != "" {
+		expanded := config.ExpandPath(target.Path)
+		fi, err := os.Stat(expanded)
+		if err == nil && fi.IsDir() {
+			// Clean it up before restoring to avoid mixing profile contents
+			os.RemoveAll(expanded)
 		}
-		var prof MultiFileProfile
-		if err := json.Unmarshal(data, &prof); err != nil {
-			return err
-		}
+	}
+
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+
+	// Try to unmarshal as a MultiFileProfile first
+	var prof MultiFileProfile
+	if err := json.Unmarshal(data, &prof); err == nil && len(prof.Files) > 0 {
 		for p, b64Content := range prof.Files {
 			decoded, err := base64.StdEncoding.DecodeString(b64Content)
 			if err != nil {
@@ -89,8 +133,14 @@ func (f *FileAdapter) Load(target config.Target, targetID string, profileName st
 		return nil
 	}
 
-	// Single-file profile
+	// Fallback to legacy single-file profile
 	destPath := config.ExpandPath(target.Path)
+	if destPath == "" && len(target.Paths) > 0 {
+		destPath = config.ExpandPath(target.Paths[0])
+	}
+	if destPath == "" {
+		return fmt.Errorf("no destination path configured for target %s", targetID)
+	}
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}

@@ -124,6 +124,57 @@ func TestFileAdapter(t *testing.T) {
 			t.Errorf("expected file2 to be %q, got %q", data2, string(res2))
 		}
 	})
+
+	// --- Test Directory ---
+	t.Run("Directory", func(t *testing.T) {
+		dirPath := filepath.Join(tmpDir, "mock_dir")
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			t.Fatalf("failed to create mock dir: %v", err)
+		}
+		file1 := filepath.Join(dirPath, "file1.txt")
+		file2 := filepath.Join(dirPath, "sub", "file2.txt")
+		_ = os.MkdirAll(filepath.Dir(file2), 0755)
+
+		_ = os.WriteFile(file1, []byte("content1"), 0600)
+		_ = os.WriteFile(file2, []byte("content2"), 0600)
+
+		target := config.Target{
+			Name: "Mock Dir Target",
+			Type: config.TypeFile,
+			Path: dirPath,
+		}
+
+		targetID := "mock_dir_target"
+		profileName := "dir_profile"
+
+		if !fa.IsInstalled(target) {
+			t.Error("expected directory to be installed")
+		}
+
+		if err := fa.Save(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to save directory: %v", err)
+		}
+
+		// Delete files or modify them
+		_ = os.WriteFile(file1, []byte("different1"), 0600)
+		_ = os.Remove(file2)
+
+		// Restore profile
+		if err := fa.Load(target, targetID, profileName); err != nil {
+			t.Fatalf("failed to load directory profile: %v", err)
+		}
+
+		// Verify files are restored
+		res1, _ := os.ReadFile(file1)
+		res2, _ := os.ReadFile(file2)
+
+		if string(res1) != "content1" {
+			t.Errorf("expected file1 to be restored, got %q", string(res1))
+		}
+		if string(res2) != "content2" {
+			t.Errorf("expected file2 to be restored, got %q", string(res2))
+		}
+	})
 }
 
 func TestJSONKeyAdapter(t *testing.T) {
