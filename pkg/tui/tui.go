@@ -425,12 +425,22 @@ var (
 	redColor       = lipgloss.Color("#C91F26")
 
 	// Text Styles for rendering colored text
-	brandRedText  = lipgloss.NewStyle().Foreground(brandRedColor)
-	brandCyanText = lipgloss.NewStyle().Foreground(brandCyanColor)
-	whiteText     = lipgloss.NewStyle().Foreground(whiteColor)
-	greenText     = lipgloss.NewStyle().Foreground(successColor)
-	grayText      = lipgloss.NewStyle().Foreground(mutedColor)
-	redText       = lipgloss.NewStyle().Foreground(redColor)
+	brandRedText   = lipgloss.NewStyle().Foreground(brandRedColor)
+	brandCyanText  = lipgloss.NewStyle().Foreground(brandCyanColor)
+	whiteText      = lipgloss.NewStyle().Foreground(whiteColor)
+	greenText      = lipgloss.NewStyle().Foreground(successColor)
+	grayText       = lipgloss.NewStyle().Foreground(mutedColor)
+	redText        = lipgloss.NewStyle().Foreground(redColor)
+	panelMutedText = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Background(panelColor)
+	footerText = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Background(frameColor)
+	footerKeyText = lipgloss.NewStyle().
+			Foreground(brandCyanColor).
+			Background(frameColor).
+			Bold(true)
 
 	appStyle = lipgloss.NewStyle().
 			Padding(0, 1).
@@ -488,6 +498,7 @@ var (
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
+			Background(frameColor).
 			MarginTop(1)
 
 	inputModalStyle = lipgloss.NewStyle().
@@ -597,11 +608,11 @@ func (m model) View() string {
 	mainContent.WriteString("\n")
 
 	if !installed {
-		mainContent.WriteString(grayText.Render("\nThis target is not installed or configured on your system.\nIt cannot be managed at the moment."))
+		mainContent.WriteString(panelMutedText.Render("\nThis target is not installed or configured on your system.\nIt cannot be managed at the moment."))
 	} else {
 		profiles := m.profiles[targetID]
 		if len(profiles) == 0 {
-			mainContent.WriteString(grayText.Render("\nNo profiles saved yet.\nPress 's' to save your active credentials as a profile."))
+			mainContent.WriteString(panelMutedText.Render("\nNo profiles saved yet.\nPress 's' to save your active credentials as a profile."))
 		} else {
 			activeProfile := m.activeState.Targets[targetID]
 			for i, profile := range profiles {
@@ -658,13 +669,13 @@ func (m model) View() string {
 	} else if m.focus == focusProfiles {
 		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("r", "Rename"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
 	}
-	views = append(views, helpStyle.Render(strings.Join(helpParts, "  •  ")))
+	views = append(views, helpStyle.Width(width-2).Render(strings.Join(helpParts, footerText.Render("  •  "))))
 
 	return appStyle.Render(strings.Join(views, "\n"))
 }
 
 func hotkey(key string, label string) string {
-	return "[" + brandCyanText.Render(key) + "] " + label
+	return footerText.Render("[") + footerKeyText.Render(key) + footerText.Render("] "+label)
 }
 
 func profileIndex(profiles []string, name string) int {
