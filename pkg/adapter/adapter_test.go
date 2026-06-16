@@ -409,3 +409,24 @@ func TestWrappedDirAdapterClaudeUsesLiveKeychainService(t *testing.T) {
 		t.Fatalf("expected live Claude service, got %q", service)
 	}
 }
+
+func TestWrappedDirAdapterClaudeUsesUserKeychainAccount(t *testing.T) {
+	oldUser := os.Getenv("USER")
+	defer os.Setenv("USER", oldUser)
+	os.Setenv("USER", "testuser")
+
+	wa := &WrappedDirAdapter{}
+	target := config.Target{
+		Name:    "Claude Code CLI",
+		Type:    config.TypeWrappedDir,
+		Path:    "~/.claude",
+		EnvVar:  "CLAUDE_CONFIG_DIR",
+		Binary:  "claude",
+		Service: "Claude Code-credentials",
+	}
+
+	account := wa.keychainAccount(target, "claude_cli", "Claude Code-credentials")
+	if account != "testuser" {
+		t.Fatalf("expected Claude keychain account from USER, got %q", account)
+	}
+}

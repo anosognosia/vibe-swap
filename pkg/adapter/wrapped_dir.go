@@ -157,17 +157,10 @@ func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, 
 		return nil
 	}
 
-	token, err := w.readFromKeychain(service)
+	account := w.keychainAccount(target, targetID, service)
+	token, err := w.readFromKeychainWithAccount(service, account)
 	if err != nil {
 		return err
-	}
-
-	account := target.Account
-	if account == "" {
-		account = w.readKeychainAccount(service)
-		if account == "" {
-			account = "default"
-		}
 	}
 
 	kv := keychainValue{
@@ -201,6 +194,10 @@ func (w *WrappedDirAdapter) loadKeychain(target config.Target, targetID string, 
 		return err
 	}
 
+	if targetID == "claude_cli" {
+		kv.Account = w.keychainAccount(target, targetID, service)
+	}
+
 	return w.writeToKeychain(service, kv.Account, kv.Token)
 }
 
@@ -212,6 +209,21 @@ func (w *WrappedDirAdapter) keychainService(target config.Target, targetID strin
 	return service
 }
 
+func (w *WrappedDirAdapter) keychainAccount(target config.Target, targetID string, service string) string {
+	if target.Account != "" {
+		return target.Account
+	}
+	if targetID == "claude_cli" {
+		if user := os.Getenv("USER"); user != "" {
+			return user
+		}
+	}
+	if account := w.readKeychainAccount(service); account != "" {
+		return account
+	}
+	return "default"
+}
+
 type keychainValue struct {
 	Account string `json:"account"`
 	Token   string `json:"token"`
@@ -219,6 +231,24 @@ type keychainValue struct {
 
 func (w *WrappedDirAdapter) readFromKeychain(service string) (string, error) {
 	cmd := exec.Command("security", "find-generic-password", "-w", "-s", service)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", errors.New(strings.TrimSpace(stderr.String()))
+	}
+
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func (w *WrappedDirAdapter) readFromKeychainWithAccount(service, account string) (string, error) {
+	if account == "" {
+		return w.readFromKeychain(service)
+	}
+
+	cmd := exec.Command("security", "find-generic-password", "-w", "-s", service, "-a", account)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -255,12 +285,12 @@ func (w *WrappedDirAdapter) readKeychainAccount(service string) string {
 }
 
 func (w *WrappedDirAdapter) writeToKeychain(service, account, token string) error {
-	// First delete existing entry (ignore failure)
-	deleteCmd := exec.Command("security", "delete-generic-password", "-s", service)
+	// First delete the target account entry (ignore failure).
+	deleteCmd := exec.Command("security", "delete-generic-password", "-s", service, "-a", account)
 	_ = deleteCmd.Run()
 
 	// Add new entry
-	addCmd := exec.Command("security", "add-generic-password", "-a", account, "-s", service, "-w", token)
+	addCmd := exec.Command("security", "add-generic-password", "-U", "-a", account, "-s", service, "-w", token)
 	var stderr bytes.Buffer
 	addCmd.Stderr = &stderr
 
