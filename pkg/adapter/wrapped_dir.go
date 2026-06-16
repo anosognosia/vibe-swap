@@ -79,6 +79,13 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 	// Save Keychain credential if configured
 	_ = w.saveKeychain(target, targetID, destDir)
 
+	// Create VibeSwap initialization marker so we know the user is active and we shouldn't auto-migrate later
+	configDir, err := config.GetConfigDir()
+	if err == nil {
+		initMarker := filepath.Join(configDir, ".initialized")
+		_ = os.WriteFile(initMarker, []byte(""), 0600)
+	}
+
 	return nil
 }
 
@@ -110,12 +117,20 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 		// so the user does not lose their current untracked configuration.
 		isSymlink := fi.Mode()&os.ModeSymlink != 0
 		if !isSymlink && fi.IsDir() {
-			profilesDir, _ := config.GetProfilesDir()
-			backupPath := filepath.Join(profilesDir, targetID, "default")
-			if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
-				_ = os.MkdirAll(backupPath, 0700)
-				_ = copyDir(defaultDir, backupPath)
-				_ = w.saveKeychain(target, targetID, backupPath)
+			configDir, _ := config.GetConfigDir()
+			initMarker := filepath.Join(configDir, ".initialized")
+
+			// Only back up as "default" if VibeSwap has never been initialized before
+			if _, statErr := os.Stat(initMarker); os.IsNotExist(statErr) {
+				profilesDir, _ := config.GetProfilesDir()
+				backupPath := filepath.Join(profilesDir, targetID, "default")
+				if _, backupStatErr := os.Stat(backupPath); os.IsNotExist(backupStatErr) {
+					_ = os.MkdirAll(backupPath, 0700)
+					_ = copyDir(defaultDir, backupPath)
+					_ = w.saveKeychain(target, targetID, backupPath)
+				}
+				// Create the initialization marker
+				_ = os.WriteFile(initMarker, []byte(""), 0600)
 			}
 			_ = os.RemoveAll(defaultDir)
 		} else if isSymlink {
