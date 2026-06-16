@@ -137,6 +137,21 @@ func (e *ElectronAdapter) Load(target config.Target, targetID string, profileNam
 
 	root := config.ExpandPath(target.Path)
 	filesDir := filepath.Join(profilePath, "files")
+	profilePaths := make(map[string]struct{}, len(prof.Paths))
+	for _, configuredPath := range prof.Paths {
+		profilePaths[configuredPath] = struct{}{}
+	}
+
+	for _, configuredPath := range target.Paths {
+		if _, ok := profilePaths[configuredPath]; ok {
+			continue
+		}
+		dst := config.ExpandPath(configuredPath)
+		if err := os.RemoveAll(dst); err != nil {
+			return fmt.Errorf("failed to remove stale desktop session item %s: %w", configuredPath, err)
+		}
+	}
+
 	for _, configuredPath := range prof.Paths {
 		dst := config.ExpandPath(configuredPath)
 		rel, err := electronRelPath(root, dst)

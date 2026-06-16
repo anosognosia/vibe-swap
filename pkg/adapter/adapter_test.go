@@ -477,6 +477,7 @@ func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
 	root := filepath.Join(tmpDir, "Library", "Application Support", "Codex")
 	cookiePath := filepath.Join(root, "Cookies")
 	prefsPath := filepath.Join(root, "Default", "Preferences")
+	sessionPath := filepath.Join(root, "Session Storage")
 	if err := os.MkdirAll(filepath.Dir(prefsPath), 0755); err != nil {
 		t.Fatalf("failed to create app dirs: %v", err)
 	}
@@ -504,6 +505,13 @@ func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
 	if err := os.WriteFile(prefsPath, []byte("prefs-v2"), 0600); err != nil {
 		t.Fatalf("failed to mutate prefs file: %v", err)
 	}
+	if err := os.MkdirAll(sessionPath, 0755); err != nil {
+		t.Fatalf("failed to create stale session dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionPath, "stale.log"), []byte("stale"), 0600); err != nil {
+		t.Fatalf("failed to write stale session file: %v", err)
+	}
+	target.Paths = append(target.Paths, sessionPath)
 
 	if err := adp.Load(target, "codex_desktop_test", "personal"); err != nil {
 		t.Fatalf("failed to load electron profile: %v", err)
@@ -523,6 +531,9 @@ func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
 	}
 	if string(prefsData) != "prefs-v1" {
 		t.Fatalf("expected restored prefs data %q, got %q", "prefs-v1", string(prefsData))
+	}
+	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale session dir to be removed, got err=%v", err)
 	}
 }
 

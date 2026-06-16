@@ -80,7 +80,8 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "Claude Helper (Plugin)"
       ],
       "process_patterns": [
-        "--user-data-dir=~/Library/Application Support/Claude"
+        "--user-data-dir=~/Library/Application Support/Claude",
+        "Claude.app/Contents/MacOS/Claude"
       ],
       "keychain_items": [
         {
@@ -95,15 +96,26 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "path": "~/Library/Application Support/Codex",
       "paths": [
         "~/Library/Application Support/Codex/Cookies",
+        "~/Library/Application Support/Codex/Cookies-journal",
+        "~/Library/Application Support/Codex/DIPS",
+        "~/Library/Application Support/Codex/DIPS-wal",
         "~/Library/Application Support/Codex/Local State",
         "~/Library/Application Support/Codex/Local Storage",
+        "~/Library/Application Support/Codex/Network Persistent State",
         "~/Library/Application Support/Codex/Preferences",
         "~/Library/Application Support/Codex/Session Storage",
         "~/Library/Application Support/Codex/Default/Cookies",
+        "~/Library/Application Support/Codex/Default/Cookies-journal",
+        "~/Library/Application Support/Codex/Default/DIPS",
+        "~/Library/Application Support/Codex/Default/DIPS-wal",
         "~/Library/Application Support/Codex/Default/Local Storage",
+        "~/Library/Application Support/Codex/Default/Network Persistent State",
         "~/Library/Application Support/Codex/Default/Preferences",
         "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies-journal",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/DIPS",
         "~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
+        "~/Library/Application Support/Codex/Partitions/codex-browser-app/Network Persistent State",
         "~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
         "~/Library/Application Support/OpenAI/Codex"
       ],
@@ -115,7 +127,8 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
         "Codex Helper (Plugin)"
       ],
       "process_patterns": [
-        "--user-data-dir=~/Library/Application Support/Codex"
+        "--user-data-dir=~/Library/Application Support/Codex",
+        "Codex.app/Contents/MacOS/Codex"
       ],
       "keychain_items": [
         {
@@ -154,7 +167,7 @@ Antigravity/agy on macOS can authenticate through the `gemini` Keychain service 
 
 Claude Desktop and Codex Desktop use Electron/Chromium app state on macOS. Their cookies and local storage depend on app-specific Safe Storage secrets in Keychain, so VibeSwap's `electron_profile` targets save both selected Application Support files and matching Keychain items. The Claude Desktop target tracks the same broad session items used by recent June 2026 Claude Desktop switchers, including cookie journals, `DIPS`, `ant-did`, `Network Persistent State`, `fcache`, `Local Storage`, `Session Storage`, and `IndexedDB`.
 
-Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by its Electron `--user-data-dir`, it asks whether to close the desktop app and retry. Existing desktop profiles saved before these tracked paths were added should be re-saved while the intended account is active.
+Quit the desktop app before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid copying live SQLite/session files. In the TUI, if VibeSwap can identify a blocking desktop process by its Electron `--user-data-dir` or app bundle executable path, it asks whether to close the desktop app and retry. Existing desktop profiles saved before these tracked paths were added should be re-saved while the intended account is active.
 
 ## Usage
 
