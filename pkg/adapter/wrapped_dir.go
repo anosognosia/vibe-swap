@@ -41,6 +41,19 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 		srcDir = config.ExpandPath(target.Path)
 	}
 
+	// Evaluate symlinks to avoid copying a directory onto itself.
+	canonicalSrc, errSrc := filepath.EvalSymlinks(srcDir)
+	canonicalDst, errDst := filepath.EvalSymlinks(destDir)
+	if errSrc == nil && errDst == nil && canonicalSrc == canonicalDst {
+		// Source and destination point to the exact same physical folder, so saving is a no-op.
+		return nil
+	}
+
+	// Use evaluated source path to walk/copy correctly.
+	if errSrc == nil {
+		srcDir = canonicalSrc
+	}
+
 	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
 		// If the source directory doesn't exist yet, we just create an empty destination directory.
 		return os.MkdirAll(destDir, 0700)
@@ -80,7 +93,20 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 				_ = copyDir(defaultDir, backupPath)
 			}
 			_ = os.RemoveAll(defaultDir)
+		} else if isSymlink {
+			// If it's a symlink, remove it so we can re-create it pointing to the active profile
+			_ = os.Remove(defaultDir)
 		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// Ensure target path is fully cleared of any file/folder/stale symlink
+	_ = os.RemoveAll(defaultDir)
+
+	// Now create the symlink pointing to the active profile's folder
+	if err := os.Symlink(profilePath, defaultDir); err != nil {
+		return fmt.Errorf("failed to create symlink from %s to %s: %w", defaultDir, profilePath, err)
 	}
 
 	return nil

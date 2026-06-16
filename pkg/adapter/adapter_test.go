@@ -315,4 +315,31 @@ func TestWrappedDirAdapter(t *testing.T) {
 	if err := wa.Load(target, targetID, profileName); err != nil {
 		t.Fatalf("failed to load wrapped dir profile: %v", err)
 	}
+
+	// Verify that srcDir is now a symlink pointing to profilePath
+	fi, err := os.Lstat(srcDir)
+	if err != nil {
+		t.Fatalf("failed to stat srcDir after load: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected srcDir to be a symlink after load, but it was not")
+	}
+
+	targetLink, err := os.Readlink(srcDir)
+	if err != nil {
+		t.Fatalf("failed to read symlink srcDir: %v", err)
+	}
+	if targetLink != profilePath {
+		t.Errorf("expected symlink to point to %s, got %s", profilePath, targetLink)
+	}
+
+	// Verify we can read file through the symlink
+	symlinkedFile := filepath.Join(srcDir, "token.txt")
+	symlinkedData, err := os.ReadFile(symlinkedFile)
+	if err != nil {
+		t.Fatalf("failed to read token through symlink: %v", err)
+	}
+	if string(symlinkedData) != "token-v1" {
+		t.Errorf("expected token content via symlink to be %q, got %q", "token-v1", string(symlinkedData))
+	}
 }
