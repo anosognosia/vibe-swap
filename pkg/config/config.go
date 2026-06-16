@@ -170,7 +170,9 @@ func GetDefaultConfig() *Config {
 				Paths: []string{
 					"~/Library/Application Support/Codex/Cookies",
 					"~/Library/Application Support/Codex/Local State",
+					"~/Library/Application Support/Codex/Local Storage",
 					"~/Library/Application Support/Codex/Preferences",
+					"~/Library/Application Support/Codex/Session Storage",
 					"~/Library/Application Support/Codex/Default/Cookies",
 					"~/Library/Application Support/Codex/Default/Local Storage",
 					"~/Library/Application Support/Codex/Default/Preferences",
