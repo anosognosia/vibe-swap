@@ -15,20 +15,28 @@ const (
 	TypeKeychain   TargetType = "keychain"
 	TypeSQLite     TargetType = "sqlite" // Deferred/future
 	TypeWrappedDir TargetType = "wrapped_dir"
+	TypeElectron   TargetType = "electron_profile"
 )
 
+type KeychainItem struct {
+	Service string `json:"service"`
+	Account string `json:"account"`
+}
+
 type Target struct {
-	Name         string     `json:"name"`
-	Type         TargetType `json:"type"`
-	Path         string     `json:"path,omitempty"`
-	Paths        []string   `json:"paths,omitempty"`         // For multiple files support
-	Key          string     `json:"key,omitempty"`           // For json_key type
-	Service      string     `json:"service,omitempty"`       // For keychain type
-	Account      string     `json:"account,omitempty"`       // For keychain type
-	FallbackFile string     `json:"fallback_file,omitempty"` // For keychain type fallback
-	Keys         []string   `json:"keys,omitempty"`          // For sqlite type (future)
-	EnvVar       string     `json:"env_var,omitempty"`       // For wrapped_dir type
-	Binary       string     `json:"binary,omitempty"`        // For wrapped_dir type
+	Name          string         `json:"name"`
+	Type          TargetType     `json:"type"`
+	Path          string         `json:"path,omitempty"`
+	Paths         []string       `json:"paths,omitempty"`          // For multiple files support
+	Key           string         `json:"key,omitempty"`            // For json_key type
+	Service       string         `json:"service,omitempty"`        // For keychain type
+	Account       string         `json:"account,omitempty"`        // For keychain type
+	FallbackFile  string         `json:"fallback_file,omitempty"`  // For keychain type fallback
+	Keys          []string       `json:"keys,omitempty"`           // For sqlite type (future)
+	EnvVar        string         `json:"env_var,omitempty"`        // For wrapped_dir type
+	Binary        string         `json:"binary,omitempty"`         // For wrapped_dir type
+	Processes     []string       `json:"processes,omitempty"`      // For desktop app process guards
+	KeychainItems []KeychainItem `json:"keychain_items,omitempty"` // For desktop app safe-storage entries
 }
 
 type Config struct {
@@ -135,9 +143,43 @@ func GetDefaultConfig() *Config {
 			},
 			"claude_desktop": {
 				Name: "Claude Desktop App",
-				Type: TypeJSONKey,
-				Path: "~/Library/Application Support/Claude/config.json",
-				Key:  "oauth:tokenCache",
+				Type: TypeElectron,
+				Path: "~/Library/Application Support/Claude",
+				Paths: []string{
+					"~/Library/Application Support/Claude/config.json",
+					"~/Library/Application Support/Claude/Cookies",
+					"~/Library/Application Support/Claude/Local State",
+					"~/Library/Application Support/Claude/Preferences",
+					"~/Library/Application Support/Claude/Local Storage",
+					"~/Library/Application Support/Claude/Session Storage",
+					"~/Library/Application Support/Claude/IndexedDB",
+				},
+				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
+				KeychainItems: []KeychainItem{
+					{Service: "Claude Safe Storage", Account: "Claude Key"},
+				},
+			},
+			"codex_desktop": {
+				Name: "Codex Desktop App",
+				Type: TypeElectron,
+				Path: "~/Library/Application Support/Codex",
+				Paths: []string{
+					"~/Library/Application Support/Codex/Cookies",
+					"~/Library/Application Support/Codex/Local State",
+					"~/Library/Application Support/Codex/Preferences",
+					"~/Library/Application Support/Codex/Default/Cookies",
+					"~/Library/Application Support/Codex/Default/Local Storage",
+					"~/Library/Application Support/Codex/Default/Preferences",
+					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Cookies",
+					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Local Storage",
+					"~/Library/Application Support/Codex/Partitions/codex-browser-app/Preferences",
+					"~/Library/Application Support/OpenAI/Codex",
+				},
+				Processes: []string{"Codex", "Codex Helper", "Codex Helper (Renderer)", "Codex Helper (GPU)", "Codex Helper (Plugin)"},
+				KeychainItems: []KeychainItem{
+					{Service: "Codex Safe Storage", Account: "Codex"},
+					{Service: "Codex Safe Storage", Account: "Codex Key"},
+				},
 			},
 			"agy": {
 				Name:    "Antigravity CLI (agy)",

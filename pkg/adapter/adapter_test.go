@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	"vibeswap/pkg/config"
@@ -437,6 +438,91 @@ func TestSyncDirSkipsUnchangedAndRemovesStaleFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
 		t.Fatalf("expected stale file to be removed, got err %v", err)
+	}
+}
+
+func TestElectronRelPath(t *testing.T) {
+	root := filepath.Join("Users", "test", "Library", "Application Support", "Codex")
+	path := filepath.Join(root, "Default", "Cookies")
+
+	rel, err := electronRelPath(root, path)
+	if err != nil {
+		t.Fatalf("failed to derive relative path: %v", err)
+	}
+	if rel != filepath.Join("Default", "Cookies") {
+		t.Fatalf("expected relative path %q, got %q", filepath.Join("Default", "Cookies"), rel)
+	}
+
+	external := filepath.Join("Users", "test", "Library", "Application Support", "OpenAI", "Codex")
+	rel, err = electronRelPath(root, external)
+	if err != nil {
+		t.Fatalf("failed to derive external path: %v", err)
+	}
+	if !strings.HasPrefix(rel, "_external") {
+		t.Fatalf("expected external path under _external, got %q", rel)
+	}
+}
+
+func TestElectronAdapterSaveAndLoadFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-electron-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	root := filepath.Join(tmpDir, "Library", "Application Support", "Codex")
+	cookiePath := filepath.Join(root, "Cookies")
+	prefsPath := filepath.Join(root, "Default", "Preferences")
+	if err := os.MkdirAll(filepath.Dir(prefsPath), 0755); err != nil {
+		t.Fatalf("failed to create app dirs: %v", err)
+	}
+	if err := os.WriteFile(cookiePath, []byte("cookie-v1"), 0600); err != nil {
+		t.Fatalf("failed to write cookie file: %v", err)
+	}
+	if err := os.WriteFile(prefsPath, []byte("prefs-v1"), 0600); err != nil {
+		t.Fatalf("failed to write prefs file: %v", err)
+	}
+
+	target := config.Target{
+		Name:  "Codex Desktop",
+		Type:  config.TypeElectron,
+		Path:  root,
+		Paths: []string{cookiePath, prefsPath},
+	}
+	adp := &ElectronAdapter{}
+	if err := adp.Save(target, "codex_desktop_test", "personal"); err != nil {
+		t.Fatalf("failed to save electron profile: %v", err)
+	}
+
+	if err := os.WriteFile(cookiePath, []byte("cookie-v2"), 0600); err != nil {
+		t.Fatalf("failed to mutate cookie file: %v", err)
+	}
+	if err := os.WriteFile(prefsPath, []byte("prefs-v2"), 0600); err != nil {
+		t.Fatalf("failed to mutate prefs file: %v", err)
+	}
+
+	if err := adp.Load(target, "codex_desktop_test", "personal"); err != nil {
+		t.Fatalf("failed to load electron profile: %v", err)
+	}
+
+	cookieData, err := os.ReadFile(cookiePath)
+	if err != nil {
+		t.Fatalf("failed to read restored cookie file: %v", err)
+	}
+	if string(cookieData) != "cookie-v1" {
+		t.Fatalf("expected restored cookie data %q, got %q", "cookie-v1", string(cookieData))
+	}
+
+	prefsData, err := os.ReadFile(prefsPath)
+	if err != nil {
+		t.Fatalf("failed to read restored prefs file: %v", err)
+	}
+	if string(prefsData) != "prefs-v1" {
+		t.Fatalf("expected restored prefs data %q, got %q", "prefs-v1", string(prefsData))
 	}
 }
 
