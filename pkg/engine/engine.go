@@ -17,6 +17,7 @@ func ListProfiles() (map[string][]string, error) {
 	}
 
 	result := make(map[string][]string)
+	cfg, _ := config.LoadConfig()
 
 	// List subdirectories (targets)
 	entries, err := os.ReadDir(profilesDir)
@@ -28,17 +29,24 @@ func ListProfiles() (map[string][]string, error) {
 		if entry.IsDir() {
 			targetID := entry.Name()
 			targetDir := filepath.Join(profilesDir, targetID)
-			
+
 			files, err := os.ReadDir(targetDir)
 			if err != nil {
 				continue
+			}
+
+			targetType := config.TargetType("")
+			if cfg != nil {
+				if target, ok := cfg.Targets[targetID]; ok {
+					targetType = target.Type
+				}
 			}
 
 			var profiles []string
 			for _, file := range files {
 				if file.IsDir() {
 					profiles = append(profiles, file.Name())
-				} else if strings.HasSuffix(file.Name(), ".json") {
+				} else if targetType != config.TypeWrappedDir && targetType != config.TypeElectron && strings.HasSuffix(file.Name(), ".json") {
 					profileName := strings.TrimSuffix(file.Name(), ".json")
 					profiles = append(profiles, profileName)
 				}
@@ -224,8 +232,8 @@ func DeleteProfile(targetID, profileName string) error {
 			// If it's a wrapped directory target, we must remove the symlink and create a physical folder
 			if targetExists && target.Type == config.TypeWrappedDir && target.Path != "" {
 				defaultDir := config.ExpandPath(target.Path)
-				_ = os.Remove(defaultDir)          // Remove the symlink
-				_ = os.MkdirAll(defaultDir, 0700)   // Recreate as a real directory
+				_ = os.Remove(defaultDir)         // Remove the symlink
+				_ = os.MkdirAll(defaultDir, 0700) // Recreate as a real directory
 			}
 		}
 	}

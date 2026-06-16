@@ -125,6 +125,52 @@ func TestListProfiles(t *testing.T) {
 	}
 }
 
+func TestListProfilesSkipsJSONProfilesForElectronTargets(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	cfg := config.GetDefaultConfig()
+	cfg.Targets = map[string]config.Target{
+		"desktop_target": {
+			Name: "Desktop Target",
+			Type: config.TypeElectron,
+			Path: filepath.Join(tmpDir, "DesktopApp"),
+		},
+	}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	targetDir := filepath.Join(profilesDir, "desktop_target")
+	if err := os.MkdirAll(filepath.Join(targetDir, "dir_profile"), 0755); err != nil {
+		t.Fatalf("failed to create directory profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "legacy.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatalf("failed to create legacy json profile: %v", err)
+	}
+
+	profiles, err := ListProfiles()
+	if err != nil {
+		t.Fatalf("failed to list profiles: %v", err)
+	}
+
+	targetProfiles := profiles["desktop_target"]
+	if len(targetProfiles) != 1 || targetProfiles[0] != "dir_profile" {
+		t.Fatalf("expected only directory profile, got %#v", targetProfiles)
+	}
+}
+
 func TestDeleteActiveWrappedProfile(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
 	if err != nil {
