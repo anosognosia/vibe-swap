@@ -150,23 +150,6 @@ func GetDefaultConfig() *Config {
 				Binary:  "claude",
 				Service: "Claude Code-credentials",
 			},
-			"claude_desktop": {
-				Name:    "Claude Desktop App",
-				Type:    TypeClaudeDesk,
-				Path:    "~/Library/Application Support/Claude/claude_desktop_config.json",
-				AppName: "Claude",
-				Paths: []string{
-					"~/Library/Application Support/Claude/claude_desktop_config.json",
-					"~/Library/Application Support/Claude-3p/claude_desktop_config.json",
-					"~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
-					"~/Library/Application Support/Claude-3p/configLibrary/00000000-0000-4000-8000-000000157210.json",
-				},
-				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
-				ProcessPatterns: []string{
-					"--user-data-dir=~/Library/Application Support/Claude",
-					"Claude.app/Contents/MacOS/Claude",
-				},
-			},
 			"claude_desktop_oauth": {
 				Name:          "Claude Desktop (OAuth Account)",
 				Type:          TypeElectronUserdata,
@@ -202,9 +185,11 @@ func normalizeConfig(cfg *Config) bool {
 	defaults := GetDefaultConfig()
 	changed := false
 
-	if _, ok := cfg.Targets["codex_desktop"]; ok {
-		delete(cfg.Targets, "codex_desktop")
-		changed = true
+	for _, deprecatedTargetID := range []string{"codex_desktop", "claude_desktop"} {
+		if _, ok := cfg.Targets[deprecatedTargetID]; ok {
+			delete(cfg.Targets, deprecatedTargetID)
+			changed = true
+		}
 	}
 
 	for id, target := range defaults.Targets {
@@ -219,38 +204,6 @@ func normalizeConfig(cfg *Config) bool {
 		case "codex":
 			if current.Name == "Codex CLI" || current.Name == "" {
 				current.Name = target.Name
-				cfg.Targets[id] = current
-				changed = true
-			}
-		case "claude_desktop":
-			if current.Type != target.Type || current.Path != target.Path {
-				cfg.Targets[id] = target
-				changed = true
-				continue
-			}
-			targetChanged := false
-			mergedPaths, pathsChanged := mergeMissingStrings(current.Paths, target.Paths)
-			if pathsChanged {
-				current.Paths = mergedPaths
-				targetChanged = true
-			}
-			if len(current.Keys) == 0 {
-				current.Keys = target.Keys
-				targetChanged = true
-			}
-			if current.AppName == "" {
-				current.AppName = target.AppName
-				targetChanged = true
-			}
-			if len(current.Processes) == 0 {
-				current.Processes = target.Processes
-				targetChanged = true
-			}
-			if len(current.ProcessPatterns) == 0 {
-				current.ProcessPatterns = target.ProcessPatterns
-				targetChanged = true
-			}
-			if targetChanged {
 				cfg.Targets[id] = current
 				changed = true
 			}

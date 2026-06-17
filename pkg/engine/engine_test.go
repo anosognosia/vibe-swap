@@ -1,11 +1,28 @@
 package engine
 
 import (
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
-	"vibeswap/pkg/config"
+	"time"
 )
+
+func startProcessGuardFixture(t *testing.T) string {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process guard fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	time.Sleep(50 * time.Millisecond)
+	return "sleep 30"
+}
 
 func TestDeleteProfile(t *testing.T) {
 	// Create temporary directory for tests
@@ -134,6 +151,94 @@ func TestRenameProfile(t *testing.T) {
 
 	if err := RenameProfile("mock_target", "wtd", "home"); err == nil {
 		t.Fatal("expected rename collision to fail")
+	}
+}
+
+func TestOverwriteProfileReplacesExistingFileProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	livePath := filepath.Join(tmpDir, "auth.json")
+	if err := os.WriteFile(livePath, []byte("new-token"), 0600); err != nil {
+		t.Fatalf("write live auth: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"mock_target": {
+			Name: "Mock Target",
+			Type: config.TypeFile,
+			Path: livePath,
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	if err := config.SaveActiveState(&config.ActiveState{Targets: map[string]string{"mock_target": "personal"}}); err != nil {
+		t.Fatalf("save active state: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("profiles dir: %v", err)
+	}
+	targetDir := filepath.Join(profilesDir, "mock_target")
+	if err := os.MkdirAll(targetDir, 0700); err != nil {
+		t.Fatalf("create target dir: %v", err)
+	}
+	profilePath := filepath.Join(targetDir, "personal.json")
+	if err := os.WriteFile(profilePath, []byte("old-token"), 0600); err != nil {
+		t.Fatalf("write old profile: %v", err)
+	}
+
+	if err := OverwriteProfile("mock_target", "personal"); err != nil {
+		t.Fatalf("overwrite profile: %v", err)
+	}
+	if got, err := os.ReadFile(profilePath); err != nil || string(got) != "new-token" {
+		t.Fatalf("expected overwritten profile to contain live token, got %q err %v", got, err)
+	}
+	state, err := config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("load active state: %v", err)
+	}
+	if state.Targets["mock_target"] != "personal" {
+		t.Fatalf("expected active state to remain on personal, got %q", state.Targets["mock_target"])
+	}
+}
+
+func TestOverwriteProfileKeepsExistingProfileWhenSaveFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	missingLivePath := filepath.Join(tmpDir, "missing-auth.json")
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"mock_target": {
+			Name: "Mock Target",
+			Type: config.TypeFile,
+			Path: missingLivePath,
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("profiles dir: %v", err)
+	}
+	targetDir := filepath.Join(profilesDir, "mock_target")
+	if err := os.MkdirAll(targetDir, 0700); err != nil {
+		t.Fatalf("create target dir: %v", err)
+	}
+	profilePath := filepath.Join(targetDir, "personal.json")
+	if err := os.WriteFile(profilePath, []byte("old-token"), 0600); err != nil {
+		t.Fatalf("write old profile: %v", err)
+	}
+
+	if err := OverwriteProfile("mock_target", "personal"); err == nil {
+		t.Fatalf("expected overwrite to fail when live auth file is missing")
+	}
+	if got, err := os.ReadFile(profilePath); err != nil || string(got) != "old-token" {
+		t.Fatalf("existing profile should remain unchanged after failed overwrite, got %q err %v", got, err)
 	}
 }
 
@@ -396,6 +501,150 @@ func TestSwitchClaudeDesktopOAuthSwitchesClaudeCLICompanion(t *testing.T) {
 	}
 	if state.Targets["claude_desktop_oauth"] != "work" || state.Targets["claude_cli"] != "work" {
 		t.Fatalf("expected active state for desktop and cli to be work, got %#v", state.Targets)
+	}
+}
+
+func TestSwitchClaudeDesktopOAuthProcessGuardStopsBeforeCompanionSwitch(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	processPattern := startProcessGuardFixture(t)
+
+	desktopPath := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
+	if err := os.MkdirAll(desktopPath, 0755); err != nil {
+		t.Fatalf("failed to create desktop dir: %v", err)
+	}
+
+	cliLive := filepath.Join(tmpDir, ".claude-auth")
+	if err := os.WriteFile(cliLive, []byte("cli-personal"), 0600); err != nil {
+		t.Fatalf("failed to seed cli live file: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"claude_desktop_oauth": {
+			Name:            "Claude Desktop OAuth",
+			Type:            config.TypeElectronUserdata,
+			SymlinkTarget:   desktopPath,
+			ProcessPatterns: []string{processPattern},
+		},
+		"claude_cli": {
+			Name: "Claude CLI",
+			Type: config.TypeFile,
+			Path: cliLive,
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	if err := config.SaveActiveState(&config.ActiveState{Targets: map[string]string{
+		"claude_cli": "personal",
+	}}); err != nil {
+		t.Fatalf("failed to save active state: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	desktopProfile := filepath.Join(profilesDir, "claude_desktop_oauth", "work")
+	if err := os.MkdirAll(desktopProfile, 0700); err != nil {
+		t.Fatalf("failed to create desktop profile: %v", err)
+	}
+	cliTargetDir := filepath.Join(profilesDir, "claude_cli")
+	if err := os.MkdirAll(cliTargetDir, 0700); err != nil {
+		t.Fatalf("failed to create cli profile dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cliTargetDir, "work.json"), []byte("cli-work"), 0600); err != nil {
+		t.Fatalf("failed to create cli profile: %v", err)
+	}
+
+	err = SwitchProfile("claude_desktop_oauth", "work")
+	if err == nil || !strings.Contains(err.Error(), "desktop app processes are running") {
+		t.Fatalf("expected process guard error, got %v", err)
+	}
+
+	cliData, err := os.ReadFile(cliLive)
+	if err != nil {
+		t.Fatalf("failed to read cli live file: %v", err)
+	}
+	if string(cliData) != "cli-personal" {
+		t.Fatalf("companion cli profile should not switch when desktop is running, got %q", cliData)
+	}
+
+	state, err := config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("failed to load active state: %v", err)
+	}
+	if state.Targets["claude_cli"] != "personal" || state.Targets["claude_desktop_oauth"] != "" {
+		t.Fatalf("expected active state to remain unchanged, got %#v", state.Targets)
+	}
+}
+
+func TestSwitchAllTargetsProcessGuardStopsBeforeAnySwitch(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	processPattern := startProcessGuardFixture(t)
+
+	fileLive := filepath.Join(tmpDir, "aaa-auth.json")
+	if err := os.WriteFile(fileLive, []byte("aaa-personal"), 0600); err != nil {
+		t.Fatalf("failed to seed file live auth: %v", err)
+	}
+	desktopPath := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
+	if err := os.MkdirAll(desktopPath, 0755); err != nil {
+		t.Fatalf("failed to create desktop dir: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"aaa_file": {
+			Name: "AAA File",
+			Type: config.TypeFile,
+			Path: fileLive,
+		},
+		"claude_desktop_oauth": {
+			Name:            "Claude Desktop OAuth",
+			Type:            config.TypeElectronUserdata,
+			SymlinkTarget:   desktopPath,
+			ProcessPatterns: []string{processPattern},
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	if err := config.SaveActiveState(&config.ActiveState{Targets: map[string]string{
+		"aaa_file": "personal",
+	}}); err != nil {
+		t.Fatalf("failed to save active state: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	fileTargetDir := filepath.Join(profilesDir, "aaa_file")
+	if err := os.MkdirAll(fileTargetDir, 0700); err != nil {
+		t.Fatalf("failed to create file profile dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fileTargetDir, "work.json"), []byte("aaa-work"), 0600); err != nil {
+		t.Fatalf("failed to create file profile: %v", err)
+	}
+	desktopProfile := filepath.Join(profilesDir, "claude_desktop_oauth", "work")
+	if err := os.MkdirAll(desktopProfile, 0700); err != nil {
+		t.Fatalf("failed to create desktop profile: %v", err)
+	}
+
+	err = SwitchAllTargets("work")
+	if err == nil || !strings.Contains(err.Error(), "desktop app processes are running") {
+		t.Fatalf("expected process guard error, got %v", err)
+	}
+
+	if got, err := os.ReadFile(fileLive); err != nil || string(got) != "aaa-personal" {
+		t.Fatalf("file target should not switch before guarded desktop target, got %q err %v", got, err)
+	}
+	state, err := config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("failed to load active state: %v", err)
+	}
+	if state.Targets["aaa_file"] != "personal" || state.Targets["claude_desktop_oauth"] != "" {
+		t.Fatalf("expected active state to remain unchanged, got %#v", state.Targets)
 	}
 }
 

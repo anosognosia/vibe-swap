@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VibeSwap - account switching for AI coding tools</title>
+    <meta
+      name="description"
+      content="Swap between coding plan accounts for Codex, Claude Code, Claude Desktop OAuth, and Antigravity/agy without rebuilding local auth state."
+    />
+    <meta property="og:site_name" content="VibeSwap" />
+    <meta property="og:title" content="VibeSwap - swap coding plan accounts easily" />
+    <meta
+      property="og:description"
+      content="A small macOS tool for switching AI coding accounts while preserving local settings, sessions, and workspace state."
+    />
+    <meta property="og:url" content="https://vibeswap.cc" />
+    <meta property="og:image" content="/vibeswap-crop.png" />
+    <meta property="og:image:alt" content="VibeSwap logo with red cups and a blue ball" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="VibeSwap - swap coding plan accounts easily" />
+    <meta
+      name="twitter:description"
+      content="Switch Codex, Claude Code, Claude Desktop OAuth, and Antigravity/agy accounts without tearing down local setup."
+    />
+    <meta name="twitter:image" content="https://vibeswap.cc/vibeswap-crop.png" />
+    <meta name="theme-color" content="#2A0B0D" />
+    <link rel="icon" type="image/png" href="/vibeswap-notext.png" />
+    <link rel="apple-touch-icon" href="/vibeswap-notext.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="VibeSwap home">
+        <img src="/vibeswap-notext.png" alt="" />
+        <span>VibeSwap</span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#install">Install</a>
+        <a href="#targets">Targets</a>
+        <a href="https://github.com/anosognosia/vibe-swap">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">macOS account switching for AI coding tools</p>
+          <h1>Swap between coding plan accounts easily, no auth.</h1>
+          <p class="lede">
+            VibeSwap saves and switches local auth state for Codex, Claude Code,
+            Claude Desktop OAuth, and Antigravity/agy while preserving the
+            project files, settings, and session state those tools rely on.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-filled" href="#install">Install</a>
+            <a class="button button-tonal" href="https://github.com/anosognosia/vibe-swap">View on GitHub</a>
+          </div>
+        </div>
+        <div class="hero-side">
+          <img class="hero-logo" src="/vibeswap-notext.png" alt="" />
+          <div class="terminal" aria-label="Install command">
+            <div class="terminal-bar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <pre><code>curl -fsSL https://vibeswap.cc/install | bash</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="section install-section">
+        <div>
+          <p class="eyebrow">install</p>
+          <h2>One command, latest release.</h2>
+          <p>
+            The installer downloads the latest GitHub Release for your Mac,
+            installs <code>vibeswap</code> to <code>~/.local/bin</code>, and
+            prints a PATH hint if needed.
+          </p>
+        </div>
+        <div class="command-list" aria-label="Install commands">
+          <div class="command-card">
+            <label for="install-command">Latest release</label>
+            <code id="install-command">curl -fsSL https://vibeswap.cc/install | bash</code>
+          </div>
+          <div class="command-card">
+            <label for="update-command">Update later</label>
+            <code id="update-command">vibeswap update</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <p class="eyebrow">why</p>
+        <h2>Built for the awkward reality of local AI auth.</h2>
+        <div class="feature-grid">
+          <article class="info-card">
+            <h3>Keep profiles separate</h3>
+            <p>
+              Save named profiles like <code>personal</code> and
+              <code>work</code>, then switch individual tools or matching
+              profiles together.
+            </p>
+          </article>
+          <article class="info-card">
+            <h3>Preserve local state</h3>
+            <p>
+              VibeSwap targets auth/session data rather than wiping whole app
+              folders, so caches, settings, and heavyweight app data stay put.
+            </p>
+          </article>
+          <article class="info-card">
+            <h3>Guard desktop apps</h3>
+            <p>
+              Desktop targets refuse to save or switch while the app is open,
+              avoiding partial writes to live Electron state.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="targets" class="section targets-section">
+        <div>
+          <p class="eyebrow">default targets</p>
+          <h2>Current support surface.</h2>
+        </div>
+        <div class="target-list">
+          <div><strong>Codex CLI/Desktop</strong><span><code>~/.codex/auth.json</code></span></div>
+          <div><strong>Claude Code CLI</strong><span><code>~/.claude</code> plus Keychain OAuth</span></div>
+          <div><strong>Claude Desktop OAuth</strong><span>Electron auth/session state</span></div>
+          <div><strong>Antigravity/agy</strong><span>Gemini OAuth files plus Keychain</span></div>
+        </div>
+      </section>
+
+      <section class="section quickstart">
+        <p class="eyebrow">quickstart</p>
+        <h2>Basic workflow.</h2>
+        <ol>
+          <li>Sign in to a tool with your personal account.</li>
+          <li>Run <code>vibeswap save codex personal</code> or save from the TUI.</li>
+          <li>Sign in with the other account and save it as <code>work</code>.</li>
+          <li>Run <code>vibeswap profile work</code> or switch profiles in the TUI.</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <span>VibeSwap</span>
+      <a href="https://github.com/anosognosia/vibe-swap">GitHub</a>
+      <a href="https://vibeswap.cc/install">Install script</a>
+    </footer>
+  </body>
+</html>

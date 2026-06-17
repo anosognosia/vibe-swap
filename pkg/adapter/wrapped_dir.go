@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 type WrappedDirAdapter struct{}

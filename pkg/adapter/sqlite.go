@@ -3,11 +3,11 @@ package adapter
 import (
 	"bytes"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 type SQLiteAdapter struct{}
@@ -142,6 +142,10 @@ func (s *SQLiteAdapter) IsInstalled(target config.Target) bool {
 
 func (s *SQLiteAdapter) CloseProcesses(target config.Target) ([]string, error) {
 	return (&ElectronAdapter{}).CloseProcesses(target)
+}
+
+func (s *SQLiteAdapter) RunningProcesses(target config.Target) []string {
+	return (&ElectronAdapter{}).runningProcesses(target)
 }
 
 func (s *SQLiteAdapter) getProfilePath(targetID, profileName string) (string, error) {

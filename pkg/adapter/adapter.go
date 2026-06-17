@@ -2,7 +2,7 @@ package adapter
 
 import (
 	"fmt"
-	"vibeswap/pkg/config"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 )
 
 type Adapter interface {
@@ -16,6 +16,10 @@ type Adapter interface {
 
 type ProcessCloser interface {
 	CloseProcesses(target config.Target) ([]string, error)
+}
+
+type ProcessGuarder interface {
+	RunningProcesses(target config.Target) []string
 }
 
 // SessionResetter is implemented by adapters that can clear a live local

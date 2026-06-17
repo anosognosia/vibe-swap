@@ -1,17 +1,24 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
-	"vibeswap/pkg/adapter"
-	"vibeswap/pkg/config"
-	"vibeswap/pkg/engine"
+	"time"
+
+	"github.com/anosognosia/vibe-swap/pkg/adapter"
+	"github.com/anosognosia/vibe-swap/pkg/config"
+	"github.com/anosognosia/vibe-swap/pkg/engine"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+const updateCheckRepo = "anosognosia/vibe-swap"
 
 type focusArea int
 
@@ -41,15 +48,20 @@ type model struct {
 	renameOldName      string
 	statusMsg          string
 	statusIsError      bool
-	closePrompt        bool
-	pendingAction      string
+	appVersion         string
+	overwritePrompt    bool
 	pendingTargetID    string
 	pendingProfileName string
 	width              int
 	height             int
 }
 
-func NewModel() (model, error) {
+type updateAvailableMsg struct {
+	current string
+	latest  string
+}
+
+func NewModel(appVersion string) (model, error) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return model{}, err
@@ -84,10 +96,14 @@ func NewModel() (model, error) {
 		targetIDs:   targetIDs,
 		focus:       focusTargets,
 		input:       ti,
+		appVersion:  appVersion,
 	}, nil
 }
 
 func (m model) Init() tea.Cmd {
+	if shouldCheckForUpdates(m.appVersion) {
+		return checkForUpdateCmd(m.appVersion)
+	}
 	return nil
 }
 
@@ -98,6 +114,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case updateAvailableMsg:
+		if m.statusMsg == "" && msg.latest != "" && msg.latest != msg.current {
+			m.statusMsg = fmt.Sprintf("VibeSwap %s is available. Run `vibeswap update` to install it.", msg.latest)
+			m.statusIsError = false
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -131,18 +154,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.focus = focusProfiles
 					}
 				} else {
-					err := engine.SaveProfile(targetID, name)
-					if err != nil {
-						m = m.setActionError("save", targetID, name, fmt.Sprintf("saving profile failed: %v", err), err)
-					} else {
-						m.statusMsg = fmt.Sprintf("Saved active credentials as profile %q", name)
-						m.statusIsError = false
-						m.clearClosePrompt()
-						m.profiles, _ = engine.ListProfiles()
-						m.activeState, _ = config.LoadActiveState()
-						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
+					if profileExists(m.profiles[targetID], name) {
+						m.focus = focusTargets
+						m.input.Reset()
+						m.renameOldName = ""
+						m.startOverwritePrompt(targetID, name)
+						return m, nil
 					}
-					m.focus = focusTargets
+					m = m.saveProfile(targetID, name, false)
 				}
 				m.input.Reset()
 				m.renameOldName = ""
@@ -165,13 +184,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		if m.closePrompt {
+		if m.overwritePrompt {
 			switch msg.String() {
-			case "y":
-				return m.closeProcessesAndRetry(), nil
+			case "o", "y", "enter":
+				return m.saveProfile(m.pendingTargetID, m.pendingProfileName, true), nil
 			case "n", "esc":
-				m.clearClosePrompt()
-				m.statusMsg = "Cancelled closing desktop app processes"
+				m.clearOverwritePrompt()
+				m.statusMsg = "Cancelled overwriting profile"
 				m.statusIsError = false
 				return m, nil
 			default:
@@ -255,7 +274,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.statusMsg = fmt.Sprintf("Switched %s to profile %q", targetID, profileName)
 						m.statusIsError = false
-						m.clearClosePrompt()
+						m.clearOverwritePrompt()
 						m.activeState, _ = config.LoadActiveState()
 					}
 					// Return focus to targets list (back out)
@@ -295,7 +314,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.statusMsg = fmt.Sprintf("Cleared live session for %s. Open the app, sign in, then save a profile.", targetID)
 					m.statusIsError = false
-					m.clearClosePrompt()
+					m.clearOverwritePrompt()
 					m.activeState, _ = config.LoadActiveState()
 				}
 			}
@@ -371,69 +390,77 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) setActionError(action, targetID, profileName, message string, err error) model {
+	m.clearOverwritePrompt()
+	if isProcessGuardError(err) {
+		m.statusMsg = processGuardToast(action)
+		m.statusIsError = true
+		return m
+	}
 	m.statusMsg = message
 	m.statusIsError = true
-	m.closePrompt = isProcessGuardError(err)
-	if m.closePrompt {
-		m.pendingAction = action
-		m.pendingTargetID = targetID
-		m.pendingProfileName = profileName
-	}
 	return m
 }
 
-func (m *model) clearClosePrompt() {
-	m.closePrompt = false
-	m.pendingAction = ""
+func (m *model) startOverwritePrompt(targetID, profileName string) {
+	m.overwritePrompt = true
+	m.pendingTargetID = targetID
+	m.pendingProfileName = profileName
+	m.statusMsg = fmt.Sprintf("Profile %q already exists. Press 'o' to overwrite it or Esc to cancel.", profileName)
+	m.statusIsError = false
+}
+
+func (m *model) clearOverwritePrompt() {
+	m.overwritePrompt = false
 	m.pendingTargetID = ""
 	m.pendingProfileName = ""
 }
 
-func (m model) closeProcessesAndRetry() model {
-	targetID := m.pendingTargetID
-	profileName := m.pendingProfileName
-	action := m.pendingAction
-	m.clearClosePrompt()
-
-	closed, err := engine.CloseTargetProcesses(targetID)
-	if err != nil {
-		m.statusMsg = fmt.Sprintf("closing desktop app processes failed: %v", err)
-		m.statusIsError = true
-		return m
-	}
-
-	switch action {
-	case "save":
+func (m model) saveProfile(targetID, profileName string, overwrite bool) model {
+	var err error
+	if overwrite {
+		err = engine.OverwriteProfile(targetID, profileName)
+	} else {
 		err = engine.SaveProfile(targetID, profileName)
-	case "switch":
-		err = engine.SwitchProfile(targetID, profileName)
-	case "clear-session":
-		err = engine.ClearTargetSession(targetID)
-	default:
-		err = fmt.Errorf("unknown pending action %q", action)
 	}
 	if err != nil {
-		m = m.setActionError(action, targetID, profileName, fmt.Sprintf("%s failed after closing desktop app processes: %v", action, err), err)
-		return m
+		action := "save"
+		if overwrite {
+			action = "overwrite"
+		}
+		return m.setActionError(action, targetID, profileName, fmt.Sprintf("saving profile failed: %v", err), err)
 	}
 
 	m.profiles, _ = engine.ListProfiles()
 	m.activeState, _ = config.LoadActiveState()
-	if action == "save" {
-		m.selectedProfileIdx = profileIndex(m.profiles[targetID], profileName)
-		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and saved profile %q", len(closed), profileName)
-	} else if action == "clear-session" {
-		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and cleared live session for %s", len(closed), targetID)
+	m.selectedProfileIdx = profileIndex(m.profiles[targetID], profileName)
+	if overwrite {
+		m.statusMsg = fmt.Sprintf("Overwrote profile %q with active credentials", profileName)
 	} else {
-		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and switched %s to profile %q", len(closed), targetID, profileName)
+		m.statusMsg = fmt.Sprintf("Saved active credentials as profile %q", profileName)
 	}
 	m.statusIsError = false
+	m.clearOverwritePrompt()
 	m.focus = focusTargets
 	return m
 }
 
 func isProcessGuardError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "desktop app processes are running")
+}
+
+func processGuardToast(action string) string {
+	verb := "that action"
+	result := "changes were made"
+	switch action {
+	case "switch":
+		verb = "switching"
+		result = "swap was made"
+	case "save", "overwrite":
+		verb = "saving"
+	case "clear-session":
+		verb = "starting a new login"
+	}
+	return fmt.Sprintf("Desktop app is running. Quit it completely, then try %s again. No %s.", verb, result)
 }
 
 func targetSupportsSessionReset(target config.Target) bool {
@@ -693,9 +720,6 @@ func (m model) View() string {
 	if m.statusMsg != "" {
 		if m.statusIsError {
 			errorMsg := "Error: " + m.statusMsg
-			if m.closePrompt {
-				errorMsg += "\n" + hotkey("y", "Close Desktop App and Retry") + "  " + hotkey("n", "Cancel")
-			}
 			views = append(views, statusRowStyle.Width(width-2).Render(errorToastStyle.Width(width-4).Render(errorMsg)))
 		} else {
 			views = append(views, statusRowStyle.Width(width-2).Render(statusStyle.Foreground(successColor).Width(width-4).Render(m.statusMsg)))
@@ -706,7 +730,9 @@ func (m model) View() string {
 
 	// Help / Footer
 	var helpParts []string
-	if m.focus == focusTargets {
+	if m.overwritePrompt {
+		helpParts = append(helpParts, hotkey("o", "Overwrite"), hotkey("esc", "Cancel"), hotkey("q", "Quit"))
+	} else if m.focus == focusTargets {
 		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
 		targetID := m.targetIDs[m.selectedTargetIdx]
 		if targetSupportsSessionReset(m.config.Targets[targetID]) {
@@ -733,6 +759,15 @@ func profileIndex(profiles []string, name string) int {
 	return 0
 }
 
+func profileExists(profiles []string, name string) bool {
+	for _, profile := range profiles {
+		if profile == name {
+			return true
+		}
+	}
+	return false
+}
+
 func existingProfileName(profiles []string, name string) string {
 	for _, profile := range profiles {
 		if profile == name {
@@ -742,8 +777,8 @@ func existingProfileName(profiles []string, name string) string {
 	return ""
 }
 
-func RunTUI() error {
-	m, err := NewModel()
+func RunTUI(appVersion string) error {
+	m, err := NewModel(appVersion)
 	if err != nil {
 		return err
 	}
@@ -751,4 +786,47 @@ func RunTUI() error {
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
+}
+
+func shouldCheckForUpdates(appVersion string) bool {
+	appVersion = strings.TrimSpace(appVersion)
+	return strings.HasPrefix(appVersion, "v")
+}
+
+func checkForUpdateCmd(currentVersion string) tea.Cmd {
+	return func() tea.Msg {
+		latest, err := latestReleaseTag()
+		if err != nil || latest == "" || latest == currentVersion {
+			return nil
+		}
+		return updateAvailableMsg{current: currentVersion, latest: latest}
+	}
+}
+
+func latestReleaseTag() (string, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/"+updateCheckRepo+"/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "vibeswap-update-check")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("latest release request failed: %s", resp.Status)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(release.TagName), nil
 }

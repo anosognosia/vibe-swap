@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 func installShellIntegration() error {

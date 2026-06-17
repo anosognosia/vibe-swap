@@ -4,22 +4,26 @@
   <img src="assets/vibeswap-crop.png" alt="VibeSwap Logo" width="500" />
 </p>
 
-VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI/Desktop, Claude Code CLI, Claude Desktop, and Antigravity/agy.
+VibeSwap is a small, lightweight, and performant account and token switcher for AI coding CLIs and apps. The default targets currently cover Codex CLI/Desktop, Claude Code CLI, Claude Desktop OAuth, and Antigravity/agy.
 
 It allows you to switch between accounts/tokens while preserving each tool's local configuration and workspace state where the tool supports it.
 
+```bash
+curl -fsSL https://vibeswap.cc/install | bash
+```
+
 ## Features
 
-*   **Zero-Dependency Compilation**: Built in Go using the Charm Bubble Tea framework. Starts up in <10ms with a tiny memory footprint.
+*   **Small Go Binary**: Built in Go using the Charm Bubble Tea framework. Starts up quickly with a tiny memory footprint.
 *   **Dual Mode**: Supports a modern interactive terminal user interface (TUI) and non-interactive command-line interface (CLI) commands.
-*   **Target Types**:
-    *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`) and can also capture a related macOS Keychain item for tools that split auth across files and Keychain.
-    *   `json_key`: Replaces specific keys in a larger JSON configuration file.
-    *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
-    *   `keychain`: Swaps macOS Keychain generic password entries.
-    *   `claude_desktop_config`: Swaps Claude Desktop's supported 1P/3P deployment configuration files.
-    *   `electron_profile`: Swaps selected Electron/Chromium desktop app state files plus matching macOS Safe Storage Keychain entries.
-    *   `sqlite`: Swaps targeted encrypted cookie rows in local SQLite state without decrypting cookie values.
+*   **Current default targets**:
+    *   `codex`: Codex CLI/Desktop account state from `~/.codex/auth.json`.
+    *   `claude_cli`: Claude Code CLI state from `~/.claude` plus the macOS Keychain OAuth credential.
+    *   `claude_desktop_oauth`: Claude Desktop OAuth account state from its Electron userData directory.
+    *   `agy`: Antigravity/agy OAuth files plus the macOS `gemini` Keychain item.
+*   **Built-in adapter types used by the defaults**:
+    *   `file`: Replaces complete session files and can also capture a related macOS Keychain item for tools that split auth across files and Keychain.
+    *   `wrapped_dir`: Wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
     *   `electron_userdata`: Switches Electron auth/session state inside a managed live userData directory. Shared heavyweight app data stays in place. See [Claude Desktop OAuth Account Switching](#claude-desktop-oauth-account-switching) below.
 *   **Flexible Swapping**: Supports individual target swapping or global profile switching (e.g., switching all active targets to a "work" profile in a single command).
 
@@ -46,8 +50,7 @@ Do not use Claude Desktop's in-app logout to set up another saved account. That 
 ### Recommended workflow for two accounts
 
 ```bash
-# 1. Start clean. Claude is closed.
-osascript -e 'tell application "Claude" to quit'
+# 1. Start clean. Quit Claude Desktop completely.
 
 # 2. Open Claude and sign in to your PERSONAL account. Close Claude.
 # 3. Save the personal state.
@@ -67,6 +70,10 @@ open -a Claude   # verify it's the personal account
 vibeswap switch claude_desktop_oauth work
 open -a Claude   # verify it's the work account
 ```
+
+If Claude Desktop is still running, VibeSwap refuses to save, switch, or clear
+the session and asks you to quit the app first. This avoids writing partial
+state while Electron is actively using the same files.
 
 ### Safety checks
 
@@ -100,19 +107,88 @@ Older versions stored snapshots directly at the userData symlink target or snaps
 - New saves create small auth/session snapshots.
 - A `Claude.real-bak-<timestamp>` safety backup of the original userData is created on first run; you can remove it after verifying everything works.
 
-
-
 ## Installation
 
-Ensure you have Go installed, then clone the repository and build:
+### Recommended macOS install
+
+Install the latest GitHub release:
 
 ```bash
-git clone https://github.com/yourusername/vibe-swap.git
-cd vibe-swap
-go build -o vibeswap cmd/main.go
+curl -fsSL https://vibeswap.cc/install | bash
 ```
 
-Move the compiled binary to your path (e.g. `/usr/local/bin/vibeswap`).
+The installer downloads the correct macOS binary for Apple Silicon or Intel, installs it to `~/.local/bin/vibeswap`, and prints a PATH hint if needed. The short `vibeswap.cc/install` URL redirects to the version of `install.sh` in this repository.
+
+The short installer URL requires this repository to be public and a GitHub
+Release to exist. The first release must include the macOS assets produced by
+the release workflow:
+
+- `vibeswap_Darwin_arm64.tar.gz`
+- `vibeswap_Darwin_x86_64.tar.gz`
+
+Update an existing install:
+
+```bash
+vibeswap update
+```
+
+Check whether an update is available without installing it:
+
+```bash
+vibeswap update --check
+```
+
+Release builds also check for updates when the TUI starts. If a newer GitHub release is available, VibeSwap shows a non-blocking toast telling you to run `vibeswap update`.
+
+Install a specific version:
+
+```bash
+curl -fsSL https://vibeswap.cc/install | bash -s -- v0.1.0
+```
+
+### Manual build from source
+
+If you want to build from source, ensure Go is installed, then run:
+
+```bash
+git clone https://github.com/anosognosia/vibe-swap.git
+cd vibe-swap
+make build
+mkdir -p ~/.local/bin
+cp vibeswap ~/.local/bin/vibeswap
+```
+
+### Publishing a release
+
+GitHub Actions runs tests and builds on every push to `main`. Release assets are published when you push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That creates downloadable `vibeswap_Darwin_arm64.tar.gz` and `vibeswap_Darwin_x86_64.tar.gz` assets on the GitHub release. The installer and `vibeswap update` use the latest release, not every commit. This keeps testers on known release builds while CI still verifies every commit to `main`.
+
+Before sharing the one-line installer, make sure:
+
+- The repository is public.
+- `install.sh` and `site/_redirects` are committed on `main`.
+- A version tag has been pushed and the GitHub Release workflow has finished.
+- The latest release contains both Darwin tarballs listed above.
+- `https://vibeswap.cc/install` returns the install script instead of a GitHub `404`.
+
+### Landing page
+
+The static landing page lives in `site/` and is intended for Cloudflare Pages at `https://vibeswap.cc`.
+
+Deploy it manually with:
+
+```bash
+npm install
+npm run site:deploy
+```
+
+After deployment, attach the custom domain `vibeswap.cc` to the Cloudflare Pages project named `vibeswap`. The `site/_redirects` file makes `https://vibeswap.cc/install` redirect to the repository install script, enabling the short one-line installer.
 
 ## Configuration
 
@@ -133,29 +209,6 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
       "env_var": "CLAUDE_CONFIG_DIR",
       "binary": "claude",
       "service": "Claude Code-credentials"
-    },
-    "claude_desktop": {
-      "name": "Claude Desktop App",
-      "type": "claude_desktop_config",
-      "path": "~/Library/Application Support/Claude/claude_desktop_config.json",
-      "app_name": "Claude",
-      "paths": [
-        "~/Library/Application Support/Claude/claude_desktop_config.json",
-        "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
-        "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
-        "~/Library/Application Support/Claude-3p/configLibrary/00000000-0000-4000-8000-000000157210.json"
-      ],
-      "processes": [
-        "Claude",
-        "Claude Helper",
-        "Claude Helper (Renderer)",
-        "Claude Helper (GPU)",
-        "Claude Helper (Plugin)"
-      ],
-      "process_patterns": [
-        "--user-data-dir=~/Library/Application Support/Claude",
-        "Claude.app/Contents/MacOS/Claude"
-      ]
     },
     "claude_desktop_oauth": {
       "name": "Claude Desktop (OAuth Account)",
@@ -198,13 +251,11 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 `vibeswap switch claude_cli <profile>` only restores the selected saved snapshot; `vibeswap save claude_cli <profile>` is the operation that captures the current live Claude credential into that profile. If a profile was saved with an older VibeSwap build that used the `default` Keychain account, re-login once with the intended Claude account and run `vibeswap save claude_cli <profile>` to refresh that profile. Profiles with identical `.vibeswap_keychain.json` files contain the same Claude credential and will not switch accounts until one of them is re-saved.
 
-Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
+Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name asks before overwriting it.
 
-Claude Desktop's supported switching surface is its 1P/3P deployment configuration, not official `claude.ai` web-login cookies. VibeSwap's `claude_desktop` target snapshots the small config files used by current Claude Desktop builds: `~/Library/Application Support/Claude/claude_desktop_config.json`, `~/Library/Application Support/Claude-3p/claude_desktop_config.json`, `~/Library/Application Support/Claude-3p/configLibrary/_meta.json`, and the managed profile `00000000-0000-4000-8000-000000157210.json`. Missing files are recorded and removed on restore, so a saved official-mode profile can cleanly remove a managed 3P profile.
+Claude Desktop account switching is exposed only through the `claude_desktop_oauth` target documented above. An older experimental `claude_desktop` target is no longer included in the default config because it did not switch official Claude web-login accounts and created a misleading extra menu item. Existing configs are normalized to remove that deprecated target.
 
-Switching Claude Desktop profiles changes provider/deployment configuration only. It does not switch between two official Claude web-login accounts. After switching, fully quit and reopen Claude Desktop because the app does not hot-reload this configuration.
-
-For switching between official Claude web-login accounts (e.g. personal vs. work), use the separate `claude_desktop_oauth` target (type `electron_userdata`) documented in [Claude Desktop OAuth Account Switching](#claude-desktop-oauth-account-switching) above. The two targets are independent and can be used together.
+For guarded desktop targets such as Claude Desktop OAuth, VibeSwap refuses to save, switch, or clear a live session while the desktop app is running. Quit the app completely first, then retry the action. The TUI shows this as a toast and does not attempt the swap.
 
 ## Usage
 
@@ -216,15 +267,32 @@ Simply run `vibeswap` to launch the Bubble Tea user interface:
 vibeswap
 ```
 
-*   Use `Up`/`Down` or `j`/`k` to navigate.
-*   Press `Tab` to switch focus between the Targets sidebar and the Profiles list.
-*   Press `s` to save the active credentials of the highlighted target as a new profile.
-*   Press `l` on supported desktop targets to clear the live local session for signing in to another account.
-*   Press `Enter` to switch the highlighted target to the highlighted profile.
-*   Press `r` to rename the highlighted profile.
-*   Press `d` to delete the highlighted profile.
-*   Press `a` to apply the highlighted profile globally to all targets.
-*   Press `q` or `Ctrl+C` to quit.
+Targets pane:
+
+*   `Up` / `Down` or `j` / `k`: Move through configured targets.
+*   `Tab`: Move to the profiles pane when the selected target has saved profiles.
+*   `Enter`: Focus the selected target's profiles, or show that no profiles are saved yet.
+*   `s`: Save the selected target's current credentials as a profile.
+*   `l`: Clear the selected target's live local session for a new login. This appears only for supported desktop targets such as `claude_desktop_oauth`.
+*   `q` or `Ctrl+C`: Quit.
+
+Profiles pane:
+
+*   `Up` / `Down` or `j` / `k`: Move through saved profiles.
+*   `Tab`, `Esc`, or `Left`: Return to the targets pane.
+*   `Enter`: Switch the selected target to the highlighted profile.
+*   `r`: Rename the highlighted profile.
+*   `d`: Delete the highlighted profile.
+*   `a`: Apply the highlighted profile name across all configured targets that have a matching saved profile.
+*   `q` or `Ctrl+C`: Quit.
+
+Save and rename prompts:
+
+*   `Enter`: Confirm the typed profile name.
+*   `Esc`: Cancel.
+*   If a saved profile already exists, VibeSwap asks before replacing it. Use `o`, `y`, or `Enter` to overwrite; use `n` or `Esc` to cancel.
+
+Release builds may show a non-blocking toast when a newer version is available. Run `vibeswap update` from the terminal to install it.
 
 ### Non-Interactive CLI
 
@@ -245,6 +313,7 @@ vibeswap
     ```bash
     vibeswap new-login claude_desktop_oauth
     ```
+    `clear-session` is also accepted as an alias for `new-login`.
 *   **Global switch all targets to a profile**:
     ```bash
     vibeswap profile <profile_name>
@@ -257,6 +326,11 @@ vibeswap
     ```bash
     vibeswap rename <target_id> <old_profile_name> <new_profile_name>
     ```
+*   **Update VibeSwap**:
+    ```bash
+    vibeswap update
+    ```
+    Use `vibeswap update --check` to check for a newer release without installing it.
 *   **Install/update shell integration wrapper**:
     ```bash
     vibeswap shell-install
@@ -268,4 +342,4 @@ vibeswap
 
 ## Security
 
-Profile backup configurations and tokens are stored in `~/.config/vibeswap/profiles/` with strict user-only read/write permissions (`0700` for directories, `0600` for files).
+VibeSwap stores its config, active-state file, and saved profiles under `~/.config/vibeswap/`. Directories are created with user-only permissions (`0700`) and profile/config files are written with user-only read/write permissions (`0600`). Saved profiles can contain OAuth tokens, cookies, and Keychain credential snapshots, so treat that directory as sensitive.

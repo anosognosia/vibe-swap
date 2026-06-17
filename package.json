@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "site:deploy": "wrangler pages deploy site --project-name vibeswap",
+    "site:preview": "wrangler pages dev site"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

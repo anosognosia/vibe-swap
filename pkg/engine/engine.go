@@ -3,11 +3,13 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/adapter"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"vibeswap/pkg/adapter"
-	"vibeswap/pkg/config"
+	"time"
 )
 
 // ListProfiles returns a map of targetID -> list of profile names.
@@ -131,6 +133,90 @@ func SaveProfile(targetID, profileName string) error {
 	return nil
 }
 
+// OverwriteProfile replaces an existing saved profile with the current live
+// credentials. It saves to a temporary profile first, so process guards and
+// other save failures leave the existing profile untouched.
+func OverwriteProfile(targetID, profileName string) error {
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" {
+		return fmt.Errorf("profile name cannot be empty")
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	target, exists := cfg.Targets[targetID]
+	if !exists {
+		return fmt.Errorf("target not found: %s", targetID)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return err
+	}
+	targetDir := filepath.Join(profilesDir, targetID)
+
+	oldPath, _, err := existingProfilePath(targetDir, profileName)
+	if err != nil {
+		return err
+	}
+
+	previousActive := ""
+	if state, err := config.LoadActiveState(); err == nil {
+		previousActive = state.Targets[targetID]
+	}
+
+	tempName, err := uniqueOverwriteTempName(targetDir, profileName)
+	if err != nil {
+		return err
+	}
+	if err := SaveProfile(targetID, tempName); err != nil {
+		return err
+	}
+
+	tempPath, _, err := existingProfilePath(targetDir, tempName)
+	if err != nil {
+		restoreProfileReference(targetID, target, tempName, previousActive)
+		return err
+	}
+
+	backupPath, err := uniqueOverwriteBackupPath(targetDir, profileName)
+	if err != nil {
+		removeProfilePath(tempPath)
+		restoreProfileReference(targetID, target, tempName, previousActive)
+		return err
+	}
+
+	if err := os.Rename(oldPath, backupPath); err != nil {
+		removeProfilePath(tempPath)
+		restoreProfileReference(targetID, target, tempName, previousActive)
+		return fmt.Errorf("failed to stage existing profile for overwrite: %w", err)
+	}
+
+	if err := os.Rename(tempPath, oldPath); err != nil {
+		_ = os.Rename(backupPath, oldPath)
+		removeProfilePath(tempPath)
+		restoreProfileReference(targetID, target, tempName, previousActive)
+		return fmt.Errorf("failed to replace profile %q: %w", profileName, err)
+	}
+
+	if err := os.RemoveAll(backupPath); err != nil {
+		_ = setActiveProfileName(targetID, profileName)
+		_ = updateElectronUserdataCurrentSnapshot(targetID, target, tempName, profileName)
+		return fmt.Errorf("profile %q was overwritten but cleanup failed: %w", profileName, err)
+	}
+
+	if err := setActiveProfileName(targetID, profileName); err != nil {
+		return err
+	}
+	if err := updateElectronUserdataCurrentSnapshot(targetID, target, tempName, profileName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // SwitchProfile switches targetID to profileName.
 func SwitchProfile(targetID, profileName string) error {
 	cfg, err := config.LoadConfig()
@@ -146,6 +232,12 @@ func SwitchProfile(targetID, profileName string) error {
 	adp, err := adapter.GetAdapter(target.Type)
 	if err != nil {
 		return err
+	}
+
+	if adp.IsInstalled(target) {
+		if err := ensureDesktopAppNotRunning(target, adp, "switch"); err != nil {
+			return err
+		}
 	}
 
 	companions, err := switchCompanionProfiles(cfg, targetID, profileName)
@@ -231,6 +323,18 @@ func CloseTargetProcesses(targetID string) ([]string, error) {
 	return closer.CloseProcesses(target)
 }
 
+func ensureDesktopAppNotRunning(target config.Target, adp adapter.Adapter, action string) error {
+	guarder, ok := adp.(adapter.ProcessGuarder)
+	if !ok {
+		return nil
+	}
+	running := guarder.RunningProcesses(target)
+	if len(running) == 0 {
+		return nil
+	}
+	return fmt.Errorf("refusing to %s while desktop app processes are running: %s; quit the desktop app completely and retry", action, strings.Join(running, ", "))
+}
+
 func switchCompanionProfiles(cfg *config.Config, targetID, profileName string) ([]string, error) {
 	if targetID != "claude_desktop_oauth" {
 		return nil, nil
@@ -281,10 +385,21 @@ func SwitchAllTargets(profileName string) error {
 		return err
 	}
 
-	var switched []string
-	var failures []string
+	type switchCandidate struct {
+		targetID string
+		target   config.Target
+		adp      adapter.Adapter
+	}
 
-	for targetID, target := range cfg.Targets {
+	var candidates []switchCandidate
+	var targetIDs []string
+	for targetID := range cfg.Targets {
+		targetIDs = append(targetIDs, targetID)
+	}
+	sort.Strings(targetIDs)
+
+	for _, targetID := range targetIDs {
+		target := cfg.Targets[targetID]
 		adp, err := adapter.GetAdapter(target.Type)
 		if err != nil {
 			continue
@@ -294,28 +409,32 @@ func SwitchAllTargets(profileName string) error {
 			continue
 		}
 
-		// Check if profile exists for this target
-		profileExists := false
-		for _, p := range profiles[targetID] {
-			if p == profileName {
-				profileExists = true
-				break
-			}
-		}
-
-		if !profileExists {
+		if !profileNameExists(profiles[targetID], profileName) {
 			continue
 		}
 
-		if err := adp.Load(target, targetID, profileName); err != nil {
-			failures = append(failures, fmt.Sprintf("%s (%v)", targetID, err))
-		} else {
-			switched = append(switched, targetID)
+		candidates = append(candidates, switchCandidate{targetID: targetID, target: target, adp: adp})
+	}
+
+	if len(candidates) == 0 {
+		return fmt.Errorf("no targets have a profile named %q to switch to", profileName)
+	}
+
+	for _, candidate := range candidates {
+		if err := ensureDesktopAppNotRunning(candidate.target, candidate.adp, "switch"); err != nil {
+			return err
 		}
 	}
 
-	if len(switched) == 0 && len(failures) == 0 {
-		return fmt.Errorf("no targets have a profile named %q to switch to", profileName)
+	var switched []string
+	var failures []string
+
+	for _, candidate := range candidates {
+		if err := candidate.adp.Load(candidate.target, candidate.targetID, profileName); err != nil {
+			failures = append(failures, fmt.Sprintf("%s (%v)", candidate.targetID, err))
+		} else {
+			switched = append(switched, candidate.targetID)
+		}
 	}
 
 	// Update active state for all successfully switched targets
@@ -417,6 +536,9 @@ func RenameProfile(targetID, oldName, newName string) error {
 	}
 	targetDir := filepath.Join(profilesDir, targetID)
 
+	var target config.Target
+	targetExists := false
+
 	oldPath, isDir, err := existingProfilePath(targetDir, oldName)
 	if err != nil {
 		return err
@@ -425,7 +547,9 @@ func RenameProfile(targetID, oldName, newName string) error {
 	// Refuse to rename a profile that is currently active on the live system
 	// (the live symlink stores the path, not the name).
 	if cfg, cfgErr := config.LoadConfig(); cfgErr == nil {
-		if target, ok := cfg.Targets[targetID]; ok {
+		if configuredTarget, ok := cfg.Targets[targetID]; ok {
+			target = configuredTarget
+			targetExists = true
 			if adp, err := adapter.GetAdapter(target.Type); err == nil {
 				if checker, ok := adp.(adapter.ActiveChecker); ok {
 					if active, cerr := checker.IsActiveProfile(target, targetID, oldName); cerr == nil && active {
@@ -451,6 +575,12 @@ func RenameProfile(targetID, oldName, newName string) error {
 		return fmt.Errorf("failed to rename profile: %v", err)
 	}
 
+	if targetExists {
+		if err := updateElectronUserdataCurrentSnapshot(targetID, target, oldName, newName); err != nil {
+			return err
+		}
+	}
+
 	state, err := config.LoadActiveState()
 	if err == nil && state.Targets[targetID] == oldName {
 		state.Targets[targetID] = newName
@@ -458,6 +588,77 @@ func RenameProfile(targetID, oldName, newName string) error {
 	}
 
 	return nil
+}
+
+func uniqueOverwriteTempName(targetDir, profileName string) (string, error) {
+	for i := 0; i < 100; i++ {
+		name := fmt.Sprintf(".%s.vibeswap-overwrite-%d-%d", profileName, time.Now().UnixNano(), i)
+		if _, _, err := existingProfilePath(targetDir, name); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return name, nil
+			}
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("could not allocate temporary overwrite profile name for %q", profileName)
+}
+
+func uniqueOverwriteBackupPath(targetDir, profileName string) (string, error) {
+	for i := 0; i < 100; i++ {
+		path := filepath.Join(targetDir, fmt.Sprintf(".%s.vibeswap-backup-%d-%d", profileName, time.Now().UnixNano(), i))
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return path, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("could not allocate temporary overwrite backup path for %q", profileName)
+}
+
+func removeProfilePath(path string) {
+	if path != "" {
+		_ = os.RemoveAll(path)
+	}
+}
+
+func restoreProfileReference(targetID string, target config.Target, oldName, restoredName string) {
+	_ = setActiveProfileName(targetID, restoredName)
+	_ = updateElectronUserdataCurrentSnapshot(targetID, target, oldName, restoredName)
+}
+
+func setActiveProfileName(targetID, profileName string) error {
+	state, err := config.LoadActiveState()
+	if err != nil {
+		return err
+	}
+	if profileName == "" {
+		delete(state.Targets, targetID)
+	} else {
+		state.Targets[targetID] = profileName
+	}
+	return config.SaveActiveState(state)
+}
+
+func updateElectronUserdataCurrentSnapshot(targetID string, target config.Target, oldName, newName string) error {
+	if target.Type != config.TypeElectronUserdata {
+		return nil
+	}
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return err
+	}
+	currentPath := filepath.Join(profilesDir, targetID, ".current")
+	data, err := os.ReadFile(currentPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if strings.TrimSpace(string(data)) != oldName {
+		return nil
+	}
+	return os.WriteFile(currentPath, []byte(newName+"\n"), 0600)
 }
 
 func existingProfilePath(targetDir, profileName string) (string, bool, error) {

@@ -3,10 +3,10 @@ package adapter
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 type JSONKeyAdapter struct{}

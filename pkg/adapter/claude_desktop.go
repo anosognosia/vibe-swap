@@ -4,9 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"path/filepath"
-	"vibeswap/pkg/config"
 )
 
 type ClaudeDesktopAdapter struct{}
@@ -113,6 +113,10 @@ func (c *ClaudeDesktopAdapter) IsInstalled(target config.Target) bool {
 
 func (c *ClaudeDesktopAdapter) CloseProcesses(target config.Target) ([]string, error) {
 	return (&ElectronAdapter{}).CloseProcesses(target)
+}
+
+func (c *ClaudeDesktopAdapter) RunningProcesses(target config.Target) []string {
+	return (&ElectronAdapter{}).runningProcesses(target)
 }
 
 func claudeDesktopPaths(target config.Target) []string {

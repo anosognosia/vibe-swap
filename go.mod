@@ -1,4 +1,4 @@
-module vibeswap
+module github.com/anosognosia/vibe-swap
 
 go 1.26.4
 

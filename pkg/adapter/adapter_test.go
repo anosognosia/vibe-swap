@@ -2,13 +2,13 @@ package adapter
 
 import (
 	"encoding/json"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-	"vibeswap/pkg/config"
 )
 
 func TestFileAdapter(t *testing.T) {

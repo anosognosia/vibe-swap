@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-	"vibeswap/pkg/config"
 )
 
 // ElectronUserdataAdapter switches Electron/Chromium auth/session state inside
@@ -405,6 +405,10 @@ func (e *ElectronUserdataAdapter) IsActiveProfile(target config.Target, targetID
 // reference the deleted name, but the next save rewrites it.
 func (e *ElectronUserdataAdapter) CanDeleteProfile(_ config.Target, _, profileName string) bool {
 	return profileName != electronUserdataLiveName
+}
+
+func (e *ElectronUserdataAdapter) RunningProcesses(target config.Target) []string {
+	return (&ElectronAdapter{}).runningProcesses(target)
 }
 
 // warnIfDuplicateSessionKey checks the new snapshot's sessionKey cookie

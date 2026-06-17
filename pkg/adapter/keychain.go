@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 type KeychainAdapter struct{}

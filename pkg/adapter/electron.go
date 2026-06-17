@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"vibeswap/pkg/config"
 )
 
 type ElectronAdapter struct{}
@@ -238,6 +238,10 @@ func (e *ElectronAdapter) runningProcesses(target config.Target) []string {
 		}
 	}
 	return running
+}
+
+func (e *ElectronAdapter) RunningProcesses(target config.Target) []string {
+	return e.runningProcesses(target)
 }
 
 func (e *ElectronAdapter) CloseProcesses(target config.Target) ([]string, error) {

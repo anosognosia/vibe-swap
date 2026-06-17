@@ -4,11 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"vibeswap/pkg/config"
 )
 
 type FileAdapter struct{}

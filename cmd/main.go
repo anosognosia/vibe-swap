@@ -3,14 +3,14 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/adapter"
+	"github.com/anosognosia/vibe-swap/pkg/config"
+	"github.com/anosognosia/vibe-swap/pkg/engine"
+	"github.com/anosognosia/vibe-swap/pkg/tui"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"vibeswap/pkg/adapter"
-	"vibeswap/pkg/config"
-	"vibeswap/pkg/engine"
-	"vibeswap/pkg/tui"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -18,6 +18,7 @@ import (
 
 var (
 	interactiveFlag bool
+	version         = "dev"
 
 	// Brand colors pulled from the logo: red dominates, aqua marks key status.
 	brandRed  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C91F26")).Bold(true)
@@ -29,14 +30,15 @@ var (
 
 func main() {
 	var rootCmd = &cobra.Command{
-		Use:   "vibeswap",
-		Short: "VibeSwap is an account and token switcher for AI coding CLIs and apps.",
+		Use:     "vibeswap",
+		Short:   "VibeSwap is an account and token switcher for AI coding CLIs and apps.",
+		Version: version,
 		Long: `A small, lightweight, and performant account switcher that lets you switch
 credentials for CLI tools and desktop apps without losing your workspace state or active sessions.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// If no subcommand is specified, default to TUI (unless interactiveFlag is explicitly false,
 			// but usually we want to run TUI by default).
-			if err := tui.RunTUI(); err != nil {
+			if err := tui.RunTUI(version); err != nil {
 				fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 				os.Exit(1)
 			}
@@ -137,11 +139,12 @@ confirmation before overwriting. Use --force to skip the prompt.`,
 						os.Exit(1)
 					}
 				}
-				if err := engine.DeleteProfile(targetID, profileName); err != nil {
-					fmt.Printf("%s Failed to delete existing profile before overwrite: %v\n", red.Render("✖"), err)
+				if err := engine.OverwriteProfile(targetID, profileName); err != nil {
+					fmt.Printf("%s Failed to overwrite profile: %v\n", red.Render("✖"), err)
 					os.Exit(1)
 				}
-				break
+				fmt.Printf("%s Successfully overwrote active credentials for %s as %q\n", green.Render("✔"), targetID, profileName)
+				return
 			}
 
 			err := engine.SaveProfile(targetID, profileName)
@@ -309,7 +312,7 @@ revoking the saved profile's server-side session.`,
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, newLoginCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, newLoginCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd, newUpdateCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

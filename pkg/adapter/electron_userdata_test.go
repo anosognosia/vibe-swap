@@ -3,12 +3,12 @@ package adapter
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/anosognosia/vibe-swap/pkg/config"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"vibeswap/pkg/config"
 )
 
 // newUserdataTarget builds a target whose symlink target is the given path.
