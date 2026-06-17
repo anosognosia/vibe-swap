@@ -14,12 +14,93 @@ It allows you to switch between accounts/tokens while preserving each tool's loc
 *   **Dual Mode**: Supports a modern interactive terminal user interface (TUI) and non-interactive command-line interface (CLI) commands.
 *   **Target Types**:
     *   `file`: Replaces complete session files (e.g., Codex CLI `auth.json`) and can also capture a related macOS Keychain item for tools that split auth across files and Keychain.
-    *   `json_key`: Replaces specific keys in a larger JSON configuration file (e.g., Claude Desktop App `oauth:tokenCache`).
+    *   `json_key`: Replaces specific keys in a larger JSON configuration file.
     *   `wrapped_dir`: Dynamically wraps CLI commands to isolate configuration directories via environment variables (e.g., Claude Code CLI using `CLAUDE_CONFIG_DIR`) while switching the tool's live credentials.
     *   `keychain`: Swaps macOS Keychain generic password entries.
+    *   `claude_desktop_config`: Swaps Claude Desktop's supported 1P/3P deployment configuration files.
     *   `electron_profile`: Swaps selected Electron/Chromium desktop app state files plus matching macOS Safe Storage Keychain entries.
     *   `sqlite`: Swaps targeted encrypted cookie rows in local SQLite state without decrypting cookie values.
-*   **Flexible Swapping**: Supports individual target swapping or global profile swapping (e.g., switching all active targets to a "work" profile in a single command).
+    *   `electron_userdata`: Switches Electron auth/session state inside a managed live userData directory. Shared heavyweight app data stays in place. See [Claude Desktop OAuth Account Switching](#claude-desktop-oauth-account-switching) below.
+*   **Flexible Swapping**: Supports individual target swapping or global profile switching (e.g., switching all active targets to a "work" profile in a single command).
+
+## Claude Desktop OAuth Account Switching
+
+The `claude_desktop_oauth` target (type `electron_userdata`) lets you sign in to multiple Claude accounts (e.g. personal + work) and switch between them. It is the only target in VibeSwap that can change the Claude Desktop app's logged-in account.
+
+### How it works
+
+Claude Desktop stores its auth state across multiple Electron/Chromium files in `~/Library/Application Support/Claude/`: `config.json`, `Cookies`, `Local Storage/`, `IndexedDB/`, `Session Storage/`, `Network/`, and related browser-state files. VibeSwap snapshots those auth/session items with APFS copy-on-write clones, while leaving shared heavyweight app data such as `vm_bundles/`, caches, logs, and `claude_desktop_config.json` in the live directory.
+
+The layout under `~/.config/vibeswap/profiles/claude_desktop_oauth/`:
+
+```
+live/         ← mutable full userData directory; Claude writes here
+<name>/       ← immutable auth/session snapshot, taken from live/ at save time
+.current      ← text file: name of the session snapshot live/ was last loaded from
+```
+
+The symlink at `~/Library/Application Support/Claude` always points at `live/`. Snapshots are never written to after Save returns, and switching copies only saved auth/session items into `live/`.
+
+Do not use Claude Desktop's in-app logout to set up another saved account. That can revoke the saved server-side session and make an old profile briefly load before Claude signs it out. Use `vibeswap new-login claude_desktop_oauth` instead; it clears local session files without asking Claude's servers to invalidate the current token.
+
+### Recommended workflow for two accounts
+
+```bash
+# 1. Start clean. Claude is closed.
+osascript -e 'tell application "Claude" to quit'
+
+# 2. Open Claude and sign in to your PERSONAL account. Close Claude.
+# 3. Save the personal state.
+vibeswap save claude_desktop_oauth personal
+
+# 4. Clear the local session without using Claude's in-app logout.
+vibeswap new-login claude_desktop_oauth
+
+# 5. Open Claude, sign in to your WORK account. Close Claude.
+# 6. Save the work state.
+vibeswap save claude_desktop_oauth work
+
+# 7. Switch freely. Both snapshots are frozen; Claude writes always
+#    go into live/, and saved auth/session items are restored on each switch.
+vibeswap switch claude_desktop_oauth personal
+open -a Claude   # verify it's the personal account
+vibeswap switch claude_desktop_oauth work
+open -a Claude   # verify it's the work account
+```
+
+### Safety checks
+
+`vibeswap save` refuses to create a snapshot whose `sessionKey` cookie ciphertext matches an existing snapshot for the same target. If you see this warning, the two snapshots are signed in to the same Claude account:
+
+```
+✖ Failed to save profile: warning: this snapshot's sessionKey cookie
+  matches snapshot "personal" — they appear to be the same Claude
+  account; if you intended a different account, use new-login,
+  sign in to the new account, then save again
+```
+
+This catches the common mistake of saving twice without actually changing accounts. The fix is to save the current account, run `vibeswap new-login claude_desktop_oauth`, open Claude Desktop, sign in to the other account, quit Claude Desktop, then save that account as its own profile.
+
+### Claude Code companion state
+
+Claude Desktop can launch embedded Claude Code/Cowork processes that read `~/.claude` unless `CLAUDE_CONFIG_DIR` is set. To avoid Desktop being on one account while embedded Claude Code is on another, `vibeswap switch claude_desktop_oauth <profile>` also switches `claude_cli` to `<profile>` when a same-named Claude CLI profile exists.
+
+For best results, keep Claude Desktop OAuth and Claude Code CLI profile names aligned (`personal`, `work`, etc.) and use `vibeswap profile <profile>` when you want all matching targets to move together.
+
+### Storage cost
+
+A new snapshot stores only auth/session files, not the whole `vm_bundles/` tree. APFS clonefile keeps unchanged file blocks shared until they diverge.
+
+### Migrating from older VibeSwap versions
+
+Older versions stored snapshots directly at the userData symlink target or snapshotted the whole userData tree. The current `electron_userdata` adapter migrates this automatically on first `save` or `switch`:
+
+- The old symlink target (your previously active profile) is copied into `live/` via CoW if needed.
+- The symlink is re-pointed at `live/`.
+- New saves create small auth/session snapshots.
+- A `Claude.real-bak-<timestamp>` safety backup of the original userData is created on first run; you can remove it after verifying everything works.
+
+
 
 ## Installation
 
@@ -55,25 +136,32 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
     },
     "claude_desktop": {
       "name": "Claude Desktop App",
-      "type": "sqlite",
-      "path": "~/Library/Application Support/Claude/Cookies",
+      "type": "claude_desktop_config",
+      "path": "~/Library/Application Support/Claude/claude_desktop_config.json",
       "app_name": "Claude",
-      "keys": [
-        "sessionKey",
-        "sessionKeyLC",
-        "routingHint",
-        "lastActiveOrg",
-        "anthropic-device-id",
-        "cf_clearance",
-        "__cf_bm"
-      ],
       "paths": [
-        "~/Library/Application Support/Claude/Local Storage",
-        "~/Library/Application Support/Claude/Session Storage",
-        "~/Library/Application Support/Claude/IndexedDB",
-        "~/Library/Application Support/Claude/fcache",
-        "~/Library/Application Support/Claude/ant-did"
+        "~/Library/Application Support/Claude/claude_desktop_config.json",
+        "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+        "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+        "~/Library/Application Support/Claude-3p/configLibrary/00000000-0000-4000-8000-000000157210.json"
       ],
+      "processes": [
+        "Claude",
+        "Claude Helper",
+        "Claude Helper (Renderer)",
+        "Claude Helper (GPU)",
+        "Claude Helper (Plugin)"
+      ],
+      "process_patterns": [
+        "--user-data-dir=~/Library/Application Support/Claude",
+        "Claude.app/Contents/MacOS/Claude"
+      ]
+    },
+    "claude_desktop_oauth": {
+      "name": "Claude Desktop (OAuth Account)",
+      "type": "electron_userdata",
+      "symlink_target": "~/Library/Application Support/Claude",
+      "app_name": "Claude",
       "processes": [
         "Claude",
         "Claude Helper",
@@ -112,9 +200,11 @@ Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as se
 
 Antigravity/agy on macOS can authenticate through the `gemini` Keychain service with account `antigravity`, while also writing settings and compatibility files under `~/.gemini`. The default agy target captures both the configured files and the Keychain item. Saving a profile with an existing name overwrites that profile.
 
-Claude Desktop uses Electron/Chromium cookies and browser storage on macOS. VibeSwap's `claude_desktop` target snapshots selected encrypted rows from `~/Library/Application Support/Claude/Cookies` plus small companion browser-state paths such as Local Storage, Session Storage, IndexedDB, fcache, and ant-did. Cookie values stay encrypted with the machine's existing Chromium Safe Storage key; VibeSwap does not decrypt or print them. A Claude Desktop profile must contain at least `sessionKey` and `lastActiveOrg`, and VibeSwap also carries companion rows such as `sessionKeyLC`, `routingHint`, `anthropic-device-id`, `cf_clearance`, and `__cf_bm` when present.
+Claude Desktop's supported switching surface is its 1P/3P deployment configuration, not official `claude.ai` web-login cookies. VibeSwap's `claude_desktop` target snapshots the small config files used by current Claude Desktop builds: `~/Library/Application Support/Claude/claude_desktop_config.json`, `~/Library/Application Support/Claude-3p/claude_desktop_config.json`, `~/Library/Application Support/Claude-3p/configLibrary/_meta.json`, and the managed profile `00000000-0000-4000-8000-000000157210.json`. Missing files are recorded and removed on restore, so a saved official-mode profile can cleanly remove a managed 3P profile.
 
-Quit Claude Desktop before saving or switching; VibeSwap refuses to operate while configured desktop processes are running to avoid writing a live SQLite database. In the TUI, if VibeSwap can identify a blocking desktop process by macOS app name, Electron `--user-data-dir`, or app bundle executable path, it asks whether to close the desktop app and retry. Existing Claude Desktop profiles saved with the previous broad Electron profile target should be re-saved while the intended account is active.
+Switching Claude Desktop profiles changes provider/deployment configuration only. It does not switch between two official Claude web-login accounts. After switching, fully quit and reopen Claude Desktop because the app does not hot-reload this configuration.
+
+For switching between official Claude web-login accounts (e.g. personal vs. work), use the separate `claude_desktop_oauth` target (type `electron_userdata`) documented in [Claude Desktop OAuth Account Switching](#claude-desktop-oauth-account-switching) above. The two targets are independent and can be used together.
 
 ## Usage
 
@@ -129,6 +219,7 @@ vibeswap
 *   Use `Up`/`Down` or `j`/`k` to navigate.
 *   Press `Tab` to switch focus between the Targets sidebar and the Profiles list.
 *   Press `s` to save the active credentials of the highlighted target as a new profile.
+*   Press `l` on supported desktop targets to clear the live local session for signing in to another account.
 *   Press `Enter` to switch the highlighted target to the highlighted profile.
 *   Press `r` to rename the highlighted profile.
 *   Press `d` to delete the highlighted profile.
@@ -145,9 +236,14 @@ vibeswap
     ```bash
     vibeswap save <target_id> <profile_name>
     ```
+    If a profile with this name already exists, the command prompts for confirmation before overwriting. Use `--force` (`-f`) to skip the prompt.
 *   **Switch a target to a profile**:
     ```bash
     vibeswap switch <target_id> <profile_name>
+    ```
+*   **Clear live session for a new login**:
+    ```bash
+    vibeswap new-login claude_desktop_oauth
     ```
 *   **Global switch all targets to a profile**:
     ```bash

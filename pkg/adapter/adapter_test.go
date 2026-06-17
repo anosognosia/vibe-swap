@@ -219,6 +219,92 @@ func TestFileAdapter(t *testing.T) {
 	})
 }
 
+func TestClaudeDesktopAdapterSaveAndLoadConfigFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-claude-desktop-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	normalConfig := filepath.Join(tmpDir, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+	threepConfig := filepath.Join(tmpDir, "Library", "Application Support", "Claude-3p", "claude_desktop_config.json")
+	metaConfig := filepath.Join(tmpDir, "Library", "Application Support", "Claude-3p", "configLibrary", "_meta.json")
+	profileConfig := filepath.Join(tmpDir, "Library", "Application Support", "Claude-3p", "configLibrary", "00000000-0000-4000-8000-000000157210.json")
+	target := config.Target{
+		Name: "Claude Desktop App",
+		Type: config.TypeClaudeDesk,
+		Paths: []string{
+			normalConfig,
+			threepConfig,
+			metaConfig,
+			profileConfig,
+		},
+	}
+
+	if err := os.MkdirAll(filepath.Dir(normalConfig), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(profileConfig), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(normalConfig, []byte(`{"deploymentMode":"1p"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profileConfig, []byte(`{"inferenceProvider":"gateway"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	adp := &ClaudeDesktopAdapter{}
+	if err := adp.Save(target, "claude_desktop", "work"); err != nil {
+		t.Fatalf("failed to save Claude Desktop profile: %v", err)
+	}
+
+	if err := os.WriteFile(normalConfig, []byte(`{"deploymentMode":"3p"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(threepConfig), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(threepConfig, []byte(`{"deploymentMode":"3p"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metaConfig, []byte(`{"appliedId":"00000000-0000-4000-8000-000000157210"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profileConfig, []byte(`{"inferenceProvider":"changed"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := adp.Load(target, "claude_desktop", "work"); err != nil {
+		t.Fatalf("failed to load Claude Desktop profile: %v", err)
+	}
+
+	data, err := os.ReadFile(normalConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"deploymentMode":"1p"}` {
+		t.Fatalf("expected normal config to be restored, got %q", string(data))
+	}
+	if _, err := os.Stat(threepConfig); !os.IsNotExist(err) {
+		t.Fatalf("expected missing threep config to be removed, got err=%v", err)
+	}
+	if _, err := os.Stat(metaConfig); !os.IsNotExist(err) {
+		t.Fatalf("expected missing meta config to be removed, got err=%v", err)
+	}
+	data, err = os.ReadFile(profileConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"inferenceProvider":"gateway"}` {
+		t.Fatalf("expected profile config to be restored, got %q", string(data))
+	}
+}
+
 func TestJSONKeyAdapter(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "vibeswap-test-*")
 	if err != nil {
@@ -590,6 +676,7 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 		Keys: []string{"sessionKey", "sessionKeyLC", "routingHint", "lastActiveOrg"},
 		Paths: []string{
 			filepath.Join(filepath.Dir(liveDB), "Local Storage"),
+			filepath.Join(filepath.Dir(liveDB), "claude_desktop_config.json"),
 		},
 	}
 	localStorageFile := filepath.Join(filepath.Dir(liveDB), "Local Storage", "leveldb", "000001.log")
@@ -598,6 +685,10 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 	}
 	if err := os.WriteFile(localStorageFile, []byte("work-local-storage"), 0600); err != nil {
 		t.Fatalf("failed to write local storage file: %v", err)
+	}
+	desktopConfigFile := filepath.Join(filepath.Dir(liveDB), "claude_desktop_config.json")
+	if err := os.WriteFile(desktopConfigFile, []byte(`{"account":"work"}`), 0600); err != nil {
+		t.Fatalf("failed to write desktop config file: %v", err)
 	}
 	adp := &SQLiteAdapter{}
 	if err := adp.Save(target, "claude_desktop_test", "work"); err != nil {
@@ -620,6 +711,9 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 	}
 	if err := os.WriteFile(staleLocalStorageFile, []byte("stale"), 0600); err != nil {
 		t.Fatalf("failed to write stale local storage file: %v", err)
+	}
+	if err := os.WriteFile(desktopConfigFile, []byte(`{"account":"personal"}`), 0600); err != nil {
+		t.Fatalf("failed to mutate desktop config file: %v", err)
 	}
 
 	if err := adp.Load(target, "claude_desktop_test", "work"); err != nil {
@@ -657,6 +751,13 @@ INSERT INTO cookies (host_key, name, encrypted_value) VALUES
 	}
 	if _, err := os.Stat(staleLocalStorageFile); !os.IsNotExist(err) {
 		t.Fatalf("expected stale local storage file to be removed, got err=%v", err)
+	}
+	data, err = os.ReadFile(desktopConfigFile)
+	if err != nil {
+		t.Fatalf("failed to read restored desktop config file: %v", err)
+	}
+	if string(data) != `{"account":"work"}` {
+		t.Fatalf("expected restored desktop config file, got %q", string(data))
 	}
 }
 

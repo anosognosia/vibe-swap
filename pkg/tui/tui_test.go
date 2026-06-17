@@ -82,3 +82,29 @@ func TestTUIFocusFlow(t *testing.T) {
 		t.Errorf("expected selectedProfileIdx to remain 1, got %d", m.selectedProfileIdx)
 	}
 }
+
+func TestTUIShowsNewLoginHotkeyOnlyForResettableTargets(t *testing.T) {
+	cfg := config.GetDefaultConfig()
+	state := &config.ActiveState{Targets: make(map[string]string)}
+
+	m := model{
+		config:      cfg,
+		activeState: state,
+		profiles:    map[string][]string{},
+		targetIDs:   []string{"claude_desktop_oauth", "codex"},
+		focus:       focusTargets,
+		width:       100,
+		height:      24,
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "New Login") {
+		t.Fatalf("expected resettable desktop oauth target to show New Login hotkey, view:\n%s", view)
+	}
+
+	m.selectedTargetIdx = 1
+	view = m.View()
+	if strings.Contains(view, "New Login") {
+		t.Fatalf("expected non-resettable codex target to hide New Login hotkey, view:\n%s", view)
+	}
+}

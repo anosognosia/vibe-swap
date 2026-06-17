@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,14 +45,24 @@ func ListProfiles() (map[string][]string, error) {
 
 			var profiles []string
 			for _, file := range files {
+				name := file.Name()
+				// Hide the internal "live" dir used by electron_userdata
+				// from the profile list (it is the mutable Claude state,
+				// not a snapshot).
+				if targetType == config.TypeElectronUserdata && name == "live" {
+					continue
+				}
 				if file.IsDir() && targetType == config.TypeSQLite {
-					if _, err := os.Stat(filepath.Join(targetDir, file.Name(), "cookies.sqlite")); err == nil {
-						profiles = append(profiles, file.Name())
+					if _, err := os.Stat(filepath.Join(targetDir, name, "cookies.sqlite")); err == nil {
+						profiles = append(profiles, name)
 					}
-				} else if file.IsDir() {
-					profiles = append(profiles, file.Name())
-				} else if targetType != config.TypeWrappedDir && targetType != config.TypeElectron && targetType != config.TypeSQLite && strings.HasSuffix(file.Name(), ".json") {
-					profileName := strings.TrimSuffix(file.Name(), ".json")
+				} else if file.IsDir() && !usesJSONProfileFiles(targetType) {
+					profiles = append(profiles, name)
+				} else if targetType != config.TypeWrappedDir && targetType != config.TypeElectron && targetType != config.TypeSQLite && strings.HasSuffix(name, ".json") {
+					if targetType == config.TypeClaudeDesk && !isClaudeDesktopConfigProfile(filepath.Join(targetDir, name)) {
+						continue
+					}
+					profileName := strings.TrimSuffix(name, ".json")
 					profiles = append(profiles, profileName)
 				}
 			}
@@ -60,6 +71,29 @@ func ListProfiles() (map[string][]string, error) {
 	}
 
 	return result, nil
+}
+
+func usesJSONProfileFiles(targetType config.TargetType) bool {
+	switch targetType {
+	case config.TypeFile, config.TypeJSONKey, config.TypeKeychain, config.TypeClaudeDesk:
+		return true
+	default:
+		return false
+	}
+}
+
+func isClaudeDesktopConfigProfile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var profile struct {
+		Files map[string]*string `json:"files"`
+	}
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return false
+	}
+	return len(profile.Files) > 0
 }
 
 // SaveProfile saves the active credentials of targetID as profileName.
@@ -114,6 +148,11 @@ func SwitchProfile(targetID, profileName string) error {
 		return err
 	}
 
+	companions, err := switchCompanionProfiles(cfg, targetID, profileName)
+	if err != nil {
+		return err
+	}
+
 	if err := adp.Load(target, targetID, profileName); err != nil {
 		return err
 	}
@@ -122,9 +161,48 @@ func SwitchProfile(targetID, profileName string) error {
 	state, err := config.LoadActiveState()
 	if err == nil {
 		state.Targets[targetID] = profileName
+		for _, companionID := range companions {
+			state.Targets[companionID] = profileName
+		}
 		_ = config.SaveActiveState(state)
 	}
 
+	return nil
+}
+
+// ClearTargetSession clears a target's live local login/session state without
+// deleting saved profiles or shared app data.
+func ClearTargetSession(targetID string) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+
+	target, exists := cfg.Targets[targetID]
+	if !exists {
+		return fmt.Errorf("target not found: %s", targetID)
+	}
+
+	adp, err := adapter.GetAdapter(target.Type)
+	if err != nil {
+		return err
+	}
+	resetter, ok := adp.(adapter.SessionResetter)
+	if !ok {
+		return fmt.Errorf("target %s does not support clearing live session state", targetID)
+	}
+	if !adp.IsInstalled(target) {
+		return fmt.Errorf("target %s is not installed or initialized on your system", targetID)
+	}
+	if err := resetter.ClearSession(target, targetID); err != nil {
+		return err
+	}
+
+	state, err := config.LoadActiveState()
+	if err == nil {
+		delete(state.Targets, targetID)
+		_ = config.SaveActiveState(state)
+	}
 	return nil
 }
 
@@ -151,6 +229,44 @@ func CloseTargetProcesses(targetID string) ([]string, error) {
 	}
 
 	return closer.CloseProcesses(target)
+}
+
+func switchCompanionProfiles(cfg *config.Config, targetID, profileName string) ([]string, error) {
+	if targetID != "claude_desktop_oauth" {
+		return nil, nil
+	}
+
+	const companionID = "claude_cli"
+	companion, ok := cfg.Targets[companionID]
+	if !ok {
+		return nil, nil
+	}
+
+	profiles, err := ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	if !profileNameExists(profiles[companionID], profileName) {
+		return nil, nil
+	}
+
+	adp, err := adapter.GetAdapter(companion.Type)
+	if err != nil {
+		return nil, err
+	}
+	if err := adp.Load(companion, companionID, profileName); err != nil {
+		return nil, fmt.Errorf("failed to switch companion target %s to profile %q: %w", companionID, profileName, err)
+	}
+	return []string{companionID}, nil
+}
+
+func profileNameExists(profiles []string, profileName string) bool {
+	for _, p := range profiles {
+		if p == profileName {
+			return true
+		}
+	}
+	return false
 }
 
 // SwitchAllTargets switches all configured and installed targets to the given profile name.
@@ -227,6 +343,22 @@ func DeleteProfile(targetID, profileName string) error {
 
 	target, targetExists := cfg.Targets[targetID]
 
+	// Refuse to delete a profile that is currently active on the live system
+	// (unless the adapter explicitly opts out via DeleteOverride).
+	if targetExists {
+		if adp, err := adapter.GetAdapter(target.Type); err == nil {
+			if override, ok := adp.(adapter.DeleteOverride); ok {
+				if !override.CanDeleteProfile(target, targetID, profileName) {
+					return fmt.Errorf("cannot delete profile %q: protected by the adapter", profileName)
+				}
+			} else if checker, ok := adp.(adapter.ActiveChecker); ok {
+				if active, cerr := checker.IsActiveProfile(target, targetID, profileName); cerr == nil && active {
+					return fmt.Errorf("cannot delete profile %q: it is the currently active profile for target %s; switch to a different profile first", profileName, targetID)
+				}
+			}
+		}
+	}
+
 	profilesDir, err := config.GetProfilesDir()
 	if err != nil {
 		return err
@@ -289,6 +421,21 @@ func RenameProfile(targetID, oldName, newName string) error {
 	if err != nil {
 		return err
 	}
+
+	// Refuse to rename a profile that is currently active on the live system
+	// (the live symlink stores the path, not the name).
+	if cfg, cfgErr := config.LoadConfig(); cfgErr == nil {
+		if target, ok := cfg.Targets[targetID]; ok {
+			if adp, err := adapter.GetAdapter(target.Type); err == nil {
+				if checker, ok := adp.(adapter.ActiveChecker); ok {
+					if active, cerr := checker.IsActiveProfile(target, targetID, oldName); cerr == nil && active {
+						return fmt.Errorf("cannot rename profile %q: it is the currently active profile for target %s; switch to a different profile first", oldName, targetID)
+					}
+				}
+			}
+		}
+	}
+
 	if _, _, err := existingProfilePath(targetDir, newName); err == nil {
 		return fmt.Errorf("profile %s already exists for target %s", newName, targetID)
 	} else if !strings.Contains(err.Error(), "not found") {

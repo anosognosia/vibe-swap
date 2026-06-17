@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,14 +89,14 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 				fmt.Printf("%s %s (%s)\n", statusBullet, brandRed.Render(target.Name), targetID)
 
 				activeProfile := state.Targets[targetID]
-				if activeProfile == "" {
+				saved := profiles[targetID]
+				if activeProfile == "" || !containsString(saved, activeProfile) {
 					activeProfile = gray.Render("none")
 				} else {
 					activeProfile = brandCyan.Render(activeProfile)
 				}
 				fmt.Printf("  Active Profile: %s\n", activeProfile)
 
-				saved := profiles[targetID]
 				if len(saved) == 0 {
 					fmt.Printf("  Saved Profiles: %s\n", gray.Render("none"))
 				} else {
@@ -109,10 +110,39 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 	var saveCmd = &cobra.Command{
 		Use:   "save [target] [profile]",
 		Short: "Save active credentials for a target as a profile",
-		Args:  cobra.ExactArgs(2),
+		Long: `Save the active credentials for a target as a named profile.
+
+If a profile with this name already exists, the command will prompt for
+confirmation before overwriting. Use --force to skip the prompt.`,
+		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			targetID := args[0]
 			profileName := args[1]
+			force, _ := cmd.Flags().GetBool("force")
+
+			// Check for an existing profile. If it exists, prompt (unless
+			// --force) and delete it before saving the new one.
+			profiles, _ := engine.ListProfiles()
+			for _, p := range profiles[targetID] {
+				if p != profileName {
+					continue
+				}
+				if !force {
+					fmt.Printf("%s Profile %q already exists for %s.\n", brandCyan.Render("?"), profileName, targetID)
+					fmt.Printf("  Overwrite it with the current state? [y/N]: ")
+					answer, _ := readLine()
+					answer = strings.ToLower(strings.TrimSpace(answer))
+					if answer != "y" && answer != "yes" {
+						fmt.Println("Aborted.")
+						os.Exit(1)
+					}
+				}
+				if err := engine.DeleteProfile(targetID, profileName); err != nil {
+					fmt.Printf("%s Failed to delete existing profile before overwrite: %v\n", red.Render("✖"), err)
+					os.Exit(1)
+				}
+				break
+			}
 
 			err := engine.SaveProfile(targetID, profileName)
 			if err != nil {
@@ -123,6 +153,7 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 			fmt.Printf("%s Successfully saved active credentials for %s as %q\n", green.Render("✔"), targetID, profileName)
 		},
 	}
+	saveCmd.Flags().BoolP("force", "f", false, "Overwrite an existing profile without prompting")
 
 	var switchCmd = &cobra.Command{
 		Use:   "switch [target] [profile]",
@@ -139,6 +170,29 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 			}
 
 			fmt.Printf("%s Successfully switched %s to profile %q\n", green.Render("✔"), targetID, profileName)
+		},
+	}
+
+	var newLoginCmd = &cobra.Command{
+		Use:     "new-login [target]",
+		Aliases: []string{"clear-session"},
+		Short:   "Clear a target's live session so the app can sign in to another account",
+		Long: `Clear a target's live local session without using the app's in-product logout.
+
+For Claude Desktop OAuth account switching, use this after saving the current
+profile and before opening Claude to sign in to another account. This avoids
+revoking the saved profile's server-side session.`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			targetID := args[0]
+
+			err := engine.ClearTargetSession(targetID)
+			if err != nil {
+				fmt.Printf("%s Failed to clear live session: %v\n", red.Render("✖"), err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("%s Cleared live session for %s. Open the app, sign in, then save a new profile.\n", green.Render("✔"), targetID)
 		},
 	}
 
@@ -255,10 +309,29 @@ credentials for CLI tools and desktop apps without losing your workspace state o
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, newLoginCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// readLine reads a single line from stdin (no trailing newline).
+func readLine() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return strings.TrimRight(line, "\r\n"), err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

@@ -18,6 +18,30 @@ type ProcessCloser interface {
 	CloseProcesses(target config.Target) ([]string, error)
 }
 
+// SessionResetter is implemented by adapters that can clear a live local
+// session without deleting the target's shared app data. This is useful for
+// "sign in to another account" flows where using the app's in-product logout
+// would revoke the saved server-side token.
+type SessionResetter interface {
+	ClearSession(target config.Target, targetID string) error
+}
+
+// ActiveChecker is an optional capability for adapters whose profiles are
+// referenced by a live system path (e.g. an Electron userData symlink).
+// The engine uses it to refuse destructive operations on the active
+// profile, which would otherwise leave the live system in a broken state.
+type ActiveChecker interface {
+	IsActiveProfile(target config.Target, targetID, profileName string) (bool, error)
+}
+
+// DeleteOverride lets an adapter opt out of the default "refuse to delete
+// the active profile" behavior. Adapters that separate the live state from
+// the snapshots (so deleting a snapshot cannot break the live system) should
+// implement this and return true to allow deletion.
+type DeleteOverride interface {
+	CanDeleteProfile(target config.Target, targetID, profileName string) bool
+}
+
 func GetAdapter(targetType config.TargetType) (Adapter, error) {
 	switch targetType {
 	case config.TypeFile:
@@ -32,6 +56,10 @@ func GetAdapter(targetType config.TargetType) (Adapter, error) {
 		return &WrappedDirAdapter{}, nil
 	case config.TypeElectron:
 		return &ElectronAdapter{}, nil
+	case config.TypeClaudeDesk:
+		return &ClaudeDesktopAdapter{}, nil
+	case config.TypeElectronUserdata:
+		return &ElectronUserdataAdapter{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported target type: %s", targetType)
 	}

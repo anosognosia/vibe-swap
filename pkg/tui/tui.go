@@ -280,6 +280,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusIsError = true
 			}
 
+		case "l":
+			if m.focus == focusTargets {
+				targetID := m.targetIDs[m.selectedTargetIdx]
+				target := m.config.Targets[targetID]
+				if !targetSupportsSessionReset(target) {
+					m.statusMsg = fmt.Sprintf("Target %s does not support new-login session clearing", targetID)
+					m.statusIsError = true
+					return m, nil
+				}
+				err := engine.ClearTargetSession(targetID)
+				if err != nil {
+					m = m.setActionError("clear-session", targetID, "", fmt.Sprintf("clearing live session failed: %v", err), err)
+				} else {
+					m.statusMsg = fmt.Sprintf("Cleared live session for %s. Open the app, sign in, then save a profile.", targetID)
+					m.statusIsError = false
+					m.clearClosePrompt()
+					m.activeState, _ = config.LoadActiveState()
+				}
+			}
+
 		case "r":
 			if m.focus == focusProfiles {
 				targetID := m.targetIDs[m.selectedTargetIdx]
@@ -387,6 +407,8 @@ func (m model) closeProcessesAndRetry() model {
 		err = engine.SaveProfile(targetID, profileName)
 	case "switch":
 		err = engine.SwitchProfile(targetID, profileName)
+	case "clear-session":
+		err = engine.ClearTargetSession(targetID)
 	default:
 		err = fmt.Errorf("unknown pending action %q", action)
 	}
@@ -400,6 +422,8 @@ func (m model) closeProcessesAndRetry() model {
 	if action == "save" {
 		m.selectedProfileIdx = profileIndex(m.profiles[targetID], profileName)
 		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and saved profile %q", len(closed), profileName)
+	} else if action == "clear-session" {
+		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and cleared live session for %s", len(closed), targetID)
 	} else {
 		m.statusMsg = fmt.Sprintf("Closed %d desktop process(es) and switched %s to profile %q", len(closed), targetID, profileName)
 	}
@@ -410,6 +434,15 @@ func (m model) closeProcessesAndRetry() model {
 
 func isProcessGuardError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "desktop app processes are running")
+}
+
+func targetSupportsSessionReset(target config.Target) bool {
+	adp, err := adapter.GetAdapter(target.Type)
+	if err != nil {
+		return false
+	}
+	_, ok := adp.(adapter.SessionResetter)
+	return ok
 }
 
 var (
@@ -582,7 +615,7 @@ func (m model) View() string {
 			bullet = grayText.Render("○ ")
 		}
 
-		activeProfile := m.activeState.Targets[targetID]
+		activeProfile := existingProfileName(m.profiles[targetID], m.activeState.Targets[targetID])
 		if activeProfile == "" {
 			activeProfile = grayText.Render("none")
 		} else {
@@ -623,7 +656,7 @@ func (m model) View() string {
 		if len(profiles) == 0 {
 			mainContent.WriteString(panelMutedText.Render("\nNo profiles saved yet.\nPress 's' to save your active credentials as a profile."))
 		} else {
-			activeProfile := m.activeState.Targets[targetID]
+			activeProfile := existingProfileName(profiles, m.activeState.Targets[targetID])
 			for i, profile := range profiles {
 				activeMarker := "  "
 				isCurrentlyActive := profile == activeProfile
@@ -675,6 +708,10 @@ func (m model) View() string {
 	var helpParts []string
 	if m.focus == focusTargets {
 		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("enter", "Focus Profiles"), hotkey("s", "Save Active"), hotkey("q", "Quit"))
+		targetID := m.targetIDs[m.selectedTargetIdx]
+		if targetSupportsSessionReset(m.config.Targets[targetID]) {
+			helpParts = append(helpParts[:len(helpParts)-1], hotkey("l", "New Login"), helpParts[len(helpParts)-1])
+		}
 	} else if m.focus == focusProfiles {
 		helpParts = append(helpParts, hotkey("tab", "Switch Pane"), hotkey("esc/left", "Back"), hotkey("enter", "Switch Target"), hotkey("r", "Rename"), hotkey("d", "Delete"), hotkey("a", "Switch All"), hotkey("q", "Quit"))
 	}
@@ -694,6 +731,15 @@ func profileIndex(profiles []string, name string) int {
 		}
 	}
 	return 0
+}
+
+func existingProfileName(profiles []string, name string) string {
+	for _, profile := range profiles {
+		if profile == name {
+			return name
+		}
+	}
+	return ""
 }
 
 func RunTUI() error {

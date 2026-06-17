@@ -306,3 +306,168 @@ func TestDeleteActiveWrappedProfile(t *testing.T) {
 		t.Error("expected targetDir to be a directory after deletion")
 	}
 }
+
+func TestSwitchClaudeDesktopOAuthSwitchesClaudeCLICompanion(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	desktopPath := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
+	if err := os.MkdirAll(desktopPath, 0755); err != nil {
+		t.Fatalf("failed to create desktop dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopPath, "config.json"), []byte("desktop-personal"), 0600); err != nil {
+		t.Fatalf("failed to seed desktop config: %v", err)
+	}
+
+	cliLive := filepath.Join(tmpDir, ".claude-auth")
+	if err := os.WriteFile(cliLive, []byte("cli-personal"), 0600); err != nil {
+		t.Fatalf("failed to seed cli live file: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"claude_desktop_oauth": {
+			Name:          "Claude Desktop OAuth",
+			Type:          config.TypeElectronUserdata,
+			SymlinkTarget: desktopPath,
+		},
+		"claude_cli": {
+			Name: "Claude CLI",
+			Type: config.TypeFile,
+			Path: cliLive,
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	desktopProfile := filepath.Join(profilesDir, "claude_desktop_oauth", "work")
+	if err := os.MkdirAll(desktopProfile, 0700); err != nil {
+		t.Fatalf("failed to create desktop profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopProfile, ".vibeswap-profile.json"), []byte(`{"kind":"electron_userdata"}`), 0600); err != nil {
+		t.Fatalf("failed to create desktop profile marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopProfile, "config.json"), []byte("desktop-work"), 0600); err != nil {
+		t.Fatalf("failed to create desktop profile config: %v", err)
+	}
+
+	cliTargetDir := filepath.Join(profilesDir, "claude_cli")
+	if err := os.MkdirAll(cliTargetDir, 0700); err != nil {
+		t.Fatalf("failed to create cli profile dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cliTargetDir, "work.json"), []byte("cli-work"), 0600); err != nil {
+		t.Fatalf("failed to create cli profile: %v", err)
+	}
+
+	if err := SwitchProfile("claude_desktop_oauth", "work"); err != nil {
+		t.Fatalf("failed to switch desktop oauth profile: %v", err)
+	}
+
+	desktopData, err := os.ReadFile(filepath.Join(desktopPath, "config.json"))
+	if err != nil {
+		t.Fatalf("failed to read desktop config after switch: %v", err)
+	}
+	if string(desktopData) != "desktop-work" {
+		t.Fatalf("expected desktop profile to switch, got %q", desktopData)
+	}
+
+	cliData, err := os.ReadFile(cliLive)
+	if err != nil {
+		t.Fatalf("failed to read cli live file after switch: %v", err)
+	}
+	if string(cliData) != "cli-work" {
+		t.Fatalf("expected companion cli profile to switch, got %q", cliData)
+	}
+
+	state, err := config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("failed to load active state: %v", err)
+	}
+	if state.Targets["claude_desktop_oauth"] != "work" || state.Targets["claude_cli"] != "work" {
+		t.Fatalf("expected active state for desktop and cli to be work, got %#v", state.Targets)
+	}
+}
+
+func TestClearTargetSessionClearsDesktopOAuthActiveStateOnly(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	desktopPath := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
+	if err := os.MkdirAll(filepath.Join(desktopPath, "Local Storage"), 0755); err != nil {
+		t.Fatalf("failed to create desktop dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopPath, "config.json"), []byte("token"), 0600); err != nil {
+		t.Fatalf("failed to seed desktop config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopPath, "Local Storage", "state.log"), []byte("local"), 0600); err != nil {
+		t.Fatalf("failed to seed local storage: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopPath, "claude_desktop_config.json"), []byte("mcp"), 0600); err != nil {
+		t.Fatalf("failed to seed shared config: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"claude_desktop_oauth": {
+			Name:          "Claude Desktop OAuth",
+			Type:          config.TypeElectronUserdata,
+			SymlinkTarget: desktopPath,
+		},
+		"claude_cli": {
+			Name: "Claude CLI",
+			Type: config.TypeFile,
+			Path: filepath.Join(tmpDir, ".claude-auth"),
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	if err := config.SaveActiveState(&config.ActiveState{Targets: map[string]string{
+		"claude_desktop_oauth": "work",
+		"claude_cli":           "work",
+	}}); err != nil {
+		t.Fatalf("failed to save active state: %v", err)
+	}
+
+	if err := ClearTargetSession("claude_desktop_oauth"); err != nil {
+		t.Fatalf("failed to clear session: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(desktopPath, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected config.json to be cleared, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(desktopPath, "Local Storage")); !os.IsNotExist(err) {
+		t.Fatalf("expected Local Storage to be cleared, got %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(desktopPath, "claude_desktop_config.json")); err != nil || string(got) != "mcp" {
+		t.Fatalf("expected shared desktop config to remain, got %q err=%v", got, err)
+	}
+
+	state, err := config.LoadActiveState()
+	if err != nil {
+		t.Fatalf("failed to load active state: %v", err)
+	}
+	if _, ok := state.Targets["claude_desktop_oauth"]; ok {
+		t.Fatalf("expected desktop oauth active state to be cleared, got %#v", state.Targets)
+	}
+	if state.Targets["claude_cli"] != "work" {
+		t.Fatalf("expected unrelated companion active state to remain, got %#v", state.Targets)
+	}
+}

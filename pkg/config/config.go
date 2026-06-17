@@ -10,12 +10,14 @@ import (
 type TargetType string
 
 const (
-	TypeFile       TargetType = "file"
-	TypeJSONKey    TargetType = "json_key"
-	TypeKeychain   TargetType = "keychain"
-	TypeSQLite     TargetType = "sqlite"
-	TypeWrappedDir TargetType = "wrapped_dir"
-	TypeElectron   TargetType = "electron_profile"
+	TypeFile             TargetType = "file"
+	TypeJSONKey          TargetType = "json_key"
+	TypeKeychain         TargetType = "keychain"
+	TypeSQLite           TargetType = "sqlite"
+	TypeWrappedDir       TargetType = "wrapped_dir"
+	TypeElectron         TargetType = "electron_profile"
+	TypeClaudeDesk       TargetType = "claude_desktop_config"
+	TypeElectronUserdata TargetType = "electron_userdata"
 )
 
 type KeychainItem struct {
@@ -39,6 +41,7 @@ type Target struct {
 	Processes       []string       `json:"processes,omitempty"`        // For desktop app process guards
 	ProcessPatterns []string       `json:"process_patterns,omitempty"` // For desktop app full command-line guards
 	KeychainItems   []KeychainItem `json:"keychain_items,omitempty"`   // For desktop app safe-storage entries
+	SymlinkTarget   string         `json:"symlink_target,omitempty"`   // For electron_userdata: the live userData path that gets symlinked to the active profile
 }
 
 type Config struct {
@@ -149,26 +152,27 @@ func GetDefaultConfig() *Config {
 			},
 			"claude_desktop": {
 				Name:    "Claude Desktop App",
-				Type:    TypeSQLite,
-				Path:    "~/Library/Application Support/Claude/Cookies",
+				Type:    TypeClaudeDesk,
+				Path:    "~/Library/Application Support/Claude/claude_desktop_config.json",
 				AppName: "Claude",
-				Keys: []string{
-					"sessionKey",
-					"sessionKeyLC",
-					"routingHint",
-					"lastActiveOrg",
-					"anthropic-device-id",
-					"cf_clearance",
-					"__cf_bm",
-				},
 				Paths: []string{
-					"~/Library/Application Support/Claude/Local Storage",
-					"~/Library/Application Support/Claude/Session Storage",
-					"~/Library/Application Support/Claude/IndexedDB",
-					"~/Library/Application Support/Claude/fcache",
-					"~/Library/Application Support/Claude/ant-did",
+					"~/Library/Application Support/Claude/claude_desktop_config.json",
+					"~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+					"~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+					"~/Library/Application Support/Claude-3p/configLibrary/00000000-0000-4000-8000-000000157210.json",
 				},
 				Processes: []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
+				ProcessPatterns: []string{
+					"--user-data-dir=~/Library/Application Support/Claude",
+					"Claude.app/Contents/MacOS/Claude",
+				},
+			},
+			"claude_desktop_oauth": {
+				Name:          "Claude Desktop (OAuth Account)",
+				Type:          TypeElectronUserdata,
+				SymlinkTarget: "~/Library/Application Support/Claude",
+				AppName:       "Claude",
+				Processes:     []string{"Claude", "Claude Helper", "Claude Helper (Renderer)", "Claude Helper (GPU)", "Claude Helper (Plugin)"},
 				ProcessPatterns: []string{
 					"--user-data-dir=~/Library/Application Support/Claude",
 					"Claude.app/Contents/MacOS/Claude",
@@ -219,14 +223,90 @@ func normalizeConfig(cfg *Config) bool {
 				changed = true
 			}
 		case "claude_desktop":
-			if current.Type != target.Type || current.Path != target.Path || len(current.Paths) == 0 {
+			if current.Type != target.Type || current.Path != target.Path {
 				cfg.Targets[id] = target
+				changed = true
+				continue
+			}
+			targetChanged := false
+			mergedPaths, pathsChanged := mergeMissingStrings(current.Paths, target.Paths)
+			if pathsChanged {
+				current.Paths = mergedPaths
+				targetChanged = true
+			}
+			if len(current.Keys) == 0 {
+				current.Keys = target.Keys
+				targetChanged = true
+			}
+			if current.AppName == "" {
+				current.AppName = target.AppName
+				targetChanged = true
+			}
+			if len(current.Processes) == 0 {
+				current.Processes = target.Processes
+				targetChanged = true
+			}
+			if len(current.ProcessPatterns) == 0 {
+				current.ProcessPatterns = target.ProcessPatterns
+				targetChanged = true
+			}
+			if targetChanged {
+				cfg.Targets[id] = current
+				changed = true
+			}
+		case "claude_desktop_oauth":
+			targetChanged := false
+			if current.Type == "" {
+				current.Type = target.Type
+				targetChanged = true
+			}
+			if current.SymlinkTarget == "" {
+				current.SymlinkTarget = target.SymlinkTarget
+				targetChanged = true
+			}
+			if current.AppName == "" {
+				current.AppName = target.AppName
+				targetChanged = true
+			}
+			if len(current.Processes) == 0 {
+				current.Processes = target.Processes
+				targetChanged = true
+			}
+			if len(current.ProcessPatterns) == 0 {
+				current.ProcessPatterns = target.ProcessPatterns
+				targetChanged = true
+			}
+			if targetChanged {
+				cfg.Targets[id] = current
 				changed = true
 			}
 		}
 	}
 
 	return changed
+}
+
+func mergeMissingStrings(current, defaults []string) ([]string, bool) {
+	seen := make(map[string]struct{}, len(current)+len(defaults))
+	merged := make([]string, 0, len(current)+len(defaults))
+	for _, value := range current {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+
+	changed := false
+	for _, value := range defaults {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+		changed = true
+	}
+	return merged, changed
 }
 
 type ActiveState struct {
