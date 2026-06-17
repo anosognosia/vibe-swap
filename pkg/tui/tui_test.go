@@ -13,8 +13,29 @@ import (
 )
 
 func TestTUIFocusFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	codexFile := filepath.Join(tmpDir, "auth.json")
+	if err := os.WriteFile(codexFile, []byte("{}"), 0600); err != nil {
+		t.Fatalf("failed to write mock codex auth file: %v", err)
+	}
+	claudeFile := filepath.Join(tmpDir, "claude_config")
+	if err := os.WriteFile(claudeFile, []byte("{}"), 0600); err != nil {
+		t.Fatalf("failed to write mock claude config file: %v", err)
+	}
+
 	// Initialize a mock config and state in memory
 	cfg := config.GetDefaultConfig()
+
+	// Override paths to the temp files so IsInstalled returns true in headless environments
+	codexTarget := cfg.Targets["codex"]
+	codexTarget.Path = codexFile
+	cfg.Targets["codex"] = codexTarget
+
+	claudeTarget := cfg.Targets["claude_cli"]
+	claudeTarget.Type = config.TypeFile
+	claudeTarget.Path = claudeFile
+	cfg.Targets["claude_cli"] = claudeTarget
+
 	state := &config.ActiveState{Targets: make(map[string]string)}
 
 	m := model{
