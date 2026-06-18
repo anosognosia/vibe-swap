@@ -122,6 +122,36 @@
         </div>
       </section>
 
+      <section class="section tui-section">
+        <div>
+          <p class="eyebrow">tui</p>
+          <h2>Profiles and usage in one view.</h2>
+          <p>
+            The terminal UI keeps targets on the left and saved profiles on the
+            right. Press <code>Tab</code>, <code>Right</code>, or
+            <code>Enter</code> to enter the profile list, then switch, rename,
+            delete, or apply matching profile names across tools.
+          </p>
+          <p>
+            Codex profiles show read-only quota usage inline, including 5-hour
+            and weekly percentages used plus the reset countdown reported by
+            Codex. VibeSwap reads the saved access token as-is and leaves token
+            refresh to Codex.
+          </p>
+        </div>
+        <div class="tui-preview" aria-label="Codex usage row example">
+          <div class="tui-title">
+            <span></span>
+            <strong>Codex CLI/Desktop</strong>
+          </div>
+          <pre><code>  personal   5h      12% used ━━━━━━────────────────  resets in 2h 15m
+             weekly   6% used ━━━───────────────────  resets in 5d 8h
+
+› work       5h      42% used ━━━━━━━━━━━━━──────────  resets in 4h 30m
+             weekly  18% used ━━━━━─────────────────  resets in 6d 2h</code></pre>
+        </div>
+      </section>
+
       <section id="targets" class="section targets-section">
         <div>
           <p class="eyebrow">default targets</p>

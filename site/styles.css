@@ -283,7 +283,8 @@ pre {
 }
 
 .install-section,
-.targets-section {
+.targets-section,
+.tui-section {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(320px, 1fr);
   gap: clamp(36px, 6vw, 80px);
@@ -361,6 +362,37 @@ pre {
   text-align: right;
 }
 
+.tui-preview {
+  max-width: 680px;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: var(--md-sys-elevation-1);
+}
+
+.tui-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary-container);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.tui-title span {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-tertiary);
+}
+
+.tui-preview pre {
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-low);
+}
+
 .quickstart ol {
   max-width: 640px;
   margin: 36px 0 0;
@@ -404,6 +436,7 @@ footer a {
   .hero,
   .install-section,
   .targets-section,
+  .tui-section,
   .feature-grid {
     grid-template-columns: 1fr;
   }

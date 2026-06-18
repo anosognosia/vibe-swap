@@ -270,8 +270,7 @@ vibeswap
 Targets pane:
 
 *   `Up` / `Down` or `j` / `k`: Move through configured targets.
-*   `Tab`: Move to the profiles pane when the selected target has saved profiles.
-*   `Enter`: Focus the selected target's profiles, or show that no profiles are saved yet.
+*   `Tab`, `Right`, or `Enter`: Focus the selected target's profiles, or show that no profiles are saved yet.
 *   `s`: Save the selected target's current credentials as a profile.
 *   `l`: Clear the selected target's live local session for a new login. This appears only for supported desktop targets such as `claude_desktop_oauth`.
 *   `q` or `Ctrl+C`: Quit.
@@ -293,6 +292,24 @@ Save and rename prompts:
 *   If a saved profile already exists, VibeSwap asks before replacing it. Use `o`, `y`, or `Enter` to overwrite; use `n` or `Esc` to cancel.
 
 Release builds may show a non-blocking toast when a newer version is available. Run `vibeswap update` from the terminal to install it.
+
+Profile rows are separated with blank spacing for readability. Long-running
+save, switch, global switch, and new-login actions show a spinner while the file
+operation is in progress.
+
+When the selected target is `codex`, each saved profile row shows read-only
+usage for that profile:
+
+```text
+  work      5h      42% used ━━━━━━━━━━━━━━━━━━━━━────────────  resets in 4h 30m
+            weekly  18% used ━━━━━━━━━────────────────────────  resets in 6d 2h
+```
+
+VibeSwap reads the saved profile's existing Codex access token and calls the
+Codex usage endpoint. Percentages are shown as quota used, with the reset
+countdown from Codex's reported reset time. VibeSwap does not refresh tokens or
+mutate saved profiles; if a token is stale, usage is shown as unavailable until
+Codex refreshes that profile through normal login/use.
 
 ### Non-Interactive CLI
 

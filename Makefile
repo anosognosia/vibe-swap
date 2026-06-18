@@ -12,7 +12,7 @@ build:
 
 install-local: build
 	mkdir -p "$$HOME/.local/bin"
-	cp $(BINARY) "$$HOME/.local/bin/$(BINARY)"
+	install -m 0755 $(BINARY) "$$HOME/.local/bin/$(BINARY)"
 	@echo "Installed $(BINARY) to $$HOME/.local/bin/$(BINARY)"
 
 clean:
