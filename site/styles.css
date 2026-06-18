@@ -247,6 +247,10 @@ h3 {
   overflow: hidden;
 }
 
+.hero-side .terminal {
+  justify-self: end;
+}
+
 .terminal-bar {
   display: flex;
   gap: 8px;
@@ -275,6 +279,15 @@ pre {
   padding: 24px;
   overflow-x: auto;
   white-space: pre-wrap;
+}
+
+.terminal pre {
+  color: var(--md-sys-color-on-surface);
+  background: #130809;
+}
+
+.terminal code {
+  color: inherit;
 }
 
 .section {
@@ -364,11 +377,7 @@ pre {
 
 .tui-preview {
   max-width: 680px;
-}
-
-.tui-preview pre {
-  color: var(--md-sys-color-on-surface);
-  background: #130809;
+  justify-self: end;
 }
 
 .quickstart ol {
