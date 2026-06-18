@@ -24,6 +24,42 @@ func startProcessGuardFixture(t *testing.T) string {
 	return "sleep 30"
 }
 
+func TestListProfilesHidesClaudeCLISharedStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	if err := config.SaveConfig(&config.Config{Targets: map[string]config.Target{
+		"claude_cli": {
+			Name: "Claude CLI",
+			Type: config.TypeWrappedDir,
+			Path: filepath.Join(tmpDir, ".claude"),
+		},
+	}}); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		t.Fatalf("failed to get profiles dir: %v", err)
+	}
+	for _, name := range []string{".shared", "personal", "wtd"} {
+		if err := os.MkdirAll(filepath.Join(profilesDir, "claude_cli", name), 0755); err != nil {
+			t.Fatalf("failed to create profile dir %s: %v", name, err)
+		}
+	}
+
+	profiles, err := ListProfiles()
+	if err != nil {
+		t.Fatalf("failed to list profiles: %v", err)
+	}
+	got := strings.Join(profiles["claude_cli"], ",")
+	if strings.Contains(got, ".shared") {
+		t.Fatalf("expected internal .shared store to be hidden, got %q", got)
+	}
+	if !strings.Contains(got, "personal") || !strings.Contains(got, "wtd") {
+		t.Fatalf("expected real profiles to remain visible, got %q", got)
+	}
+}
+
 func TestDeleteProfile(t *testing.T) {
 	// Create temporary directory for tests
 	tmpDir, err := os.MkdirTemp("", "vibeswap-engine-test-*")

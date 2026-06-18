@@ -54,6 +54,9 @@ func ListProfiles() (map[string][]string, error) {
 				if targetType == config.TypeElectronUserdata && name == "live" {
 					continue
 				}
+				if targetID == "claude_cli" && name == ".shared" {
+					continue
+				}
 				if file.IsDir() && targetType == config.TypeSQLite {
 					if _, err := os.Stat(filepath.Join(targetDir, name, "cookies.sqlite")); err == nil {
 						profiles = append(profiles, name)
