@@ -818,8 +818,7 @@ var (
 
 	selectedItemStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(brandRedColor).
-				PaddingLeft(1)
+				Background(brandRedColor)
 
 	activeItemStyle = lipgloss.NewStyle().
 			Foreground(brandCyanColor).
@@ -828,8 +827,7 @@ var (
 
 	normalItemStyle = lipgloss.NewStyle().
 			Foreground(labelColor).
-			Background(panelColor).
-			PaddingLeft(1)
+			Background(panelColor)
 
 	statusStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -930,10 +928,10 @@ func (m model) View() string {
 		if activeProfile == "" {
 			activeProfile = grayText.Render("none")
 		} else {
-			activeProfile = whiteText.Render(activeProfile)
+			activeProfile = brandCyanText.Render(activeProfile)
 		}
 
-		line := fmt.Sprintf("%s%s (%s)", bullet, target.Name, activeProfile)
+		line := fmt.Sprintf(" %s%s (%s)", bullet, target.Name, activeProfile)
 
 		if i == m.selectedTargetIdx && m.focus == focusTargets {
 			sbContent.WriteString(selectedItemStyle.Render(line) + "\n")
@@ -995,7 +993,7 @@ func (m model) View() string {
 					continue
 				}
 
-				line := fmt.Sprintf("%s%s", activeMarker, profile)
+				line := fmt.Sprintf(" %s%s", activeMarker, profile)
 				if isCurrentlyActive && !isSelected {
 					line = activeItemStyle.Render(line)
 				}
@@ -1063,7 +1061,7 @@ func hotkey(key string, label string) string {
 
 func (m model) renderCodexProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
 	labelWidth := m.profileLabelWidth("codex")
-	label := fmt.Sprintf("%s%s", activeMarker, profile)
+	label := fmt.Sprintf(" %s%s", activeMarker, profile)
 	if isSelected {
 		label = selectedItemStyle.Render(label)
 	} else if isCurrentlyActive {
@@ -1103,7 +1101,7 @@ func (m model) profileLabelWidth(targetID string) int {
 
 func (m model) renderAgyProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
 	labelWidth := m.profileLabelWidth("agy")
-	label := fmt.Sprintf("%s%s", activeMarker, profile)
+	label := fmt.Sprintf(" %s%s", activeMarker, profile)
 	if isSelected {
 		label = selectedItemStyle.Render(label)
 	} else if isCurrentlyActive {
@@ -1163,7 +1161,7 @@ func (m model) renderCodexUsageLine(label string, labelWidth int, profile string
 
 func (m model) renderAgyUsageLine(label string, labelWidth int, profileUsage usage.AgyProfileUsage) string {
 	if profileUsage.Error != "" {
-		return label + panelText.Render("  ") + panelMutedText.Render("usage unavailable")
+		return label + panelText.Render("  ") + panelMutedText.Render(shortUsageError(profileUsage.Error))
 	}
 	if len(profileUsage.Windows) == 0 {
 		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
@@ -1192,6 +1190,20 @@ func (m model) renderAgyUsageLine(label string, labelWidth int, profileUsage usa
 		b.WriteString(panelText.Render("  " + formatResetIn(window.ResetAt, time.Now())))
 	}
 	return b.String()
+}
+
+func shortUsageError(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "usage unavailable"
+	}
+	if strings.Contains(message, "access token expired") {
+		return "token expired"
+	}
+	if strings.Contains(message, "401") || strings.Contains(strings.ToLower(message), "unauthorized") {
+		return "sign in again"
+	}
+	return "usage unavailable"
 }
 
 func formatResetIn(resetAt, now time.Time) string {

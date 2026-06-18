@@ -96,7 +96,6 @@ func TestAgyFetcherDoesNotRefreshExpiredToken(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	writeAgyProfile(t, tmpDir, "personal", `{
 		"access_token": "expired-token",
-		"refresh_token": "refresh-token",
 		"expiry_date": 1
 	}`)
 

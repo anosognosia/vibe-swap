@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +41,7 @@ type AgyFetcher struct {
 	Client                  *http.Client
 	LoadCodeAssistURL       string
 	FetchAvailableModelsURL string
+	OAuthTokenURL           string
 }
 
 type agyProfileFile struct {
@@ -47,8 +50,22 @@ type agyProfileFile struct {
 
 type agyOAuthCredentials struct {
 	AccessToken            string  `json:"access_token"`
+	RefreshToken           string  `json:"refresh_token"`
 	ExpiryDateMilliseconds float64 `json:"expiry_date"`
 	ProjectID              string  `json:"project_id"`
+	ClientID               string  `json:"client_id"`
+	ClientSecret           string  `json:"client_secret"`
+	IDToken                string  `json:"id_token"`
+}
+
+type agyOAuthClient struct {
+	ClientID     string
+	ClientSecret string
+}
+
+type agyRefreshResponse struct {
+	AccessToken string  `json:"access_token"`
+	ExpiresIn   float64 `json:"expires_in"`
 }
 
 type agyCodeAssistResponse struct {
@@ -141,8 +158,10 @@ func (f AgyFetcher) FetchProfile(ctx context.Context, profileName string) AgyPro
 	if credentials.ExpiryDateMilliseconds > 0 {
 		expiry := time.UnixMilli(int64(credentials.ExpiryDateMilliseconds))
 		if time.Until(expiry) <= 0 {
-			usage.Error = "access token expired"
-			return usage
+			if err := f.refreshAccessToken(ctx, credentials); err != nil {
+				usage.Error = fmt.Sprintf("access token expired: %v", err)
+				return usage
+			}
 		}
 	}
 
@@ -167,8 +186,21 @@ func (f AgyFetcher) FetchProfile(ctx context.Context, profileName string) AgyPro
 		},
 	})
 	if err != nil {
-		usage.Error = err.Error()
-		return usage
+		if isAgyUnauthorized(err) {
+			if refreshErr := f.refreshAccessToken(ctx, credentials); refreshErr == nil {
+				codeAssist, err = sendAgyRequest[agyCodeAssistResponse](ctx, client, loadURL, credentials.AccessToken, map[string]any{
+					"metadata": map[string]any{
+						"ideType":    "ANTIGRAVITY",
+						"platform":   "PLATFORM_UNSPECIFIED",
+						"pluginType": "GEMINI",
+					},
+				})
+			}
+		}
+		if err != nil {
+			usage.Error = err.Error()
+			return usage
+		}
 	}
 	usage.Plan = agyPlanName(codeAssist)
 	projectID := strings.TrimSpace(credentials.ProjectID)
@@ -189,6 +221,55 @@ func (f AgyFetcher) FetchProfile(ctx context.Context, profileName string) AgyPro
 		usage.Error = "no quota models available"
 	}
 	return usage
+}
+
+func (f AgyFetcher) refreshAccessToken(ctx context.Context, credentials *agyOAuthCredentials) error {
+	if strings.TrimSpace(credentials.RefreshToken) == "" {
+		return fmt.Errorf("missing refresh token")
+	}
+	oauthClient, err := resolveAgyOAuthClient(credentials)
+	if err != nil {
+		return err
+	}
+	client := f.Client
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	form := fmt.Sprintf(
+		"client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token",
+		urlQueryEscape(oauthClient.ClientID),
+		urlQueryEscape(oauthClient.ClientSecret),
+		urlQueryEscape(credentials.RefreshToken),
+	)
+	tokenURL := f.OAuthTokenURL
+	if tokenURL == "" {
+		tokenURL = "https://oauth2.googleapis.com/token"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("refresh agy access token failed: %s", resp.Status)
+	}
+	var body agyRefreshResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return err
+	}
+	if strings.TrimSpace(body.AccessToken) == "" {
+		return fmt.Errorf("refresh agy access token missing access token")
+	}
+	credentials.AccessToken = body.AccessToken
+	if body.ExpiresIn > 0 {
+		credentials.ExpiryDateMilliseconds = float64(time.Now().Add(time.Duration(body.ExpiresIn) * time.Second).UnixMilli())
+	}
+	return nil
 }
 
 func ReadAgyProfileCredentials(profileName string) (*agyOAuthCredentials, error) {
@@ -247,6 +328,150 @@ func sendAgyRequest[T any](ctx context.Context, client *http.Client, url, access
 		return zero, fmt.Errorf("decode agy usage response: %v", err)
 	}
 	return result, nil
+}
+
+func isAgyUnauthorized(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "401")
+}
+
+func urlQueryEscape(value string) string {
+	return url.QueryEscape(value)
+}
+
+func resolveAgyOAuthClient(credentials *agyOAuthCredentials) (agyOAuthClient, error) {
+	if strings.TrimSpace(credentials.ClientID) != "" && strings.TrimSpace(credentials.ClientSecret) != "" {
+		return agyOAuthClient{ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret}, nil
+	}
+	idTokenClientID := agyClientIDFromIDToken(credentials.IDToken)
+	if envID := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_ID")); envID != "" {
+		if envSecret := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET")); envSecret != "" {
+			return agyOAuthClient{ClientID: envID, ClientSecret: envSecret}, nil
+		}
+	}
+	if client, ok := discoverAgyOAuthClient(); ok {
+		if idTokenClientID != "" {
+			client.ClientID = idTokenClientID
+		}
+		return client, nil
+	}
+	return agyOAuthClient{}, fmt.Errorf("antigravity OAuth client not found")
+}
+
+func agyClientIDFromIDToken(idToken string) string {
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload := strings.NewReplacer("-", "+", "_", "/").Replace(parts[1])
+	if rem := len(payload) % 4; rem > 0 {
+		payload += strings.Repeat("=", 4-rem)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Audience        string `json:"aud"`
+		AuthorizedParty string `json:"azp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(claims.Audience) != "" {
+		return strings.TrimSpace(claims.Audience)
+	}
+	return strings.TrimSpace(claims.AuthorizedParty)
+}
+
+func discoverAgyOAuthClient() (agyOAuthClient, bool) {
+	home, _ := os.UserHomeDir()
+	roots := []string{"/Applications"}
+	if home != "" {
+		roots = append(roots, filepath.Join(home, "Applications"))
+	}
+	relativePaths := []string{
+		"Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm",
+		"Contents/Resources/app/extensions/antigravity/bin/language_server_macos_x64",
+		"Contents/Resources/app/extensions/antigravity/bin/language_server_macos",
+		"Contents/Resources/app/out/main.js",
+		"Contents/Resources/bin/language_server",
+		"Contents/Resources/bin/language_server_macos",
+	}
+	for _, root := range roots {
+		apps := []string{filepath.Join(root, "Antigravity.app")}
+		entries, _ := os.ReadDir(root)
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasSuffix(entry.Name(), ".app") && strings.Contains(strings.ToLower(entry.Name()), "antigravity") {
+				apps = append(apps, filepath.Join(root, entry.Name()))
+			}
+		}
+		for _, app := range apps {
+			for _, rel := range relativePaths {
+				path := filepath.Join(app, rel)
+				data, err := os.ReadFile(path)
+				if err != nil {
+					continue
+				}
+				if client, ok := parseAgyOAuthClient(data); ok {
+					return client, true
+				}
+			}
+		}
+	}
+	return agyOAuthClient{}, false
+}
+
+func parseAgyOAuthClient(data []byte) (agyOAuthClient, bool) {
+	if content := string(data); content != "" {
+		if client, ok := parseAgyOAuthClientText(content); ok {
+			return client, true
+		}
+	}
+	clientIDs := uniqueStrings(regexp.MustCompile(`[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com`).FindAllString(string(data), -1))
+	clientSecrets := uniqueStrings(regexp.MustCompile(`GOCSPX-[A-Za-z0-9_-]{28}`).FindAllString(string(data), -1))
+	if len(clientIDs) == 0 || len(clientSecrets) == 0 {
+		return agyOAuthClient{}, false
+	}
+	secret := clientSecrets[0]
+	if len(clientSecrets) == len(clientIDs) && len(clientSecrets) > 1 {
+		secret = clientSecrets[len(clientSecrets)-1]
+	}
+	id := clientIDs[0]
+	if len(clientSecrets) == 1 && len(clientIDs) > 1 {
+		id = clientIDs[len(clientIDs)-1]
+	}
+	return agyOAuthClient{ClientID: id, ClientSecret: secret}, true
+}
+
+func parseAgyOAuthClientText(content string) (agyOAuthClient, bool) {
+	start := 0
+	if idx := strings.Index(content, "vs/platform/cloudCode/common/oauthClient.js"); idx >= 0 {
+		start = idx
+	}
+	end := start + 4000
+	if end > len(content) {
+		end = len(content)
+	}
+	haystack := content[start:end]
+	id := regexp.MustCompile(`[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com`).FindString(haystack)
+	secret := regexp.MustCompile(`GOCSPX-[A-Za-z0-9_-]{28}`).FindString(haystack)
+	if id == "" || secret == "" {
+		return agyOAuthClient{}, false
+	}
+	return agyOAuthClient{ClientID: id, ClientSecret: secret}, true
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func agyPlanName(response agyCodeAssistResponse) string {
