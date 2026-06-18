@@ -126,6 +126,105 @@ func TestTUIFocusFlow(t *testing.T) {
 	}
 }
 
+func TestTUIMouseClickSelectsTarget(t *testing.T) {
+	m := model{
+		config: &config.Config{Targets: map[string]config.Target{
+			"agy":   {Name: "Antigravity CLI", Type: config.TypeFile, Path: "/tmp/agy"},
+			"codex": {Name: "Codex CLI/Desktop", Type: config.TypeFile, Path: "/tmp/codex"},
+		}},
+		activeState:       &config.ActiveState{Targets: map[string]string{}},
+		profiles:          map[string][]string{"agy": {"personal"}, "codex": {"work"}},
+		targetIDs:         []string{"agy", "codex"},
+		selectedTargetIdx: 0,
+		focus:             focusTargets,
+		width:             100,
+		height:            30,
+	}
+
+	updated, _ := m.Update(tea.MouseMsg{Type: tea.MouseLeft, X: 3, Y: panelContentStartY() + 2})
+	got := updated.(model)
+	if got.selectedTargetIdx != 1 || got.focus != focusTargets {
+		t.Fatalf("expected mouse click to select second target, got idx=%d focus=%v", got.selectedTargetIdx, got.focus)
+	}
+}
+
+func TestTUIMouseClickSelectsProfile(t *testing.T) {
+	m := model{
+		config: &config.Config{Targets: map[string]config.Target{
+			"codex": {Name: "Codex CLI/Desktop", Type: config.TypeFile, Path: "/tmp/codex"},
+		}},
+		activeState:       &config.ActiveState{Targets: map[string]string{}},
+		profiles:          map[string][]string{"codex": {"personal", "work"}},
+		targetIDs:         []string{"codex"},
+		selectedTargetIdx: 0,
+		focus:             focusTargets,
+		width:             100,
+		height:            30,
+		codexUsageLoaded:  true,
+		codexUsage:        map[string]usage.CodexProfileUsage{},
+	}
+	_, mainX, _, _, _ := m.layoutMetrics()
+
+	updated, _ := m.Update(tea.MouseMsg{Type: tea.MouseLeft, X: mainX + 2, Y: panelContentStartY() + 2})
+	got := updated.(model)
+	if got.selectedProfileIdx != 0 || got.focus != focusProfiles {
+		t.Fatalf("expected mouse click to focus/select first profile, got idx=%d focus=%v", got.selectedProfileIdx, got.focus)
+	}
+}
+
+func TestTUIMouseClickFirstBasicProfileDoesNotSelectNextRow(t *testing.T) {
+	m := model{
+		config: &config.Config{Targets: map[string]config.Target{
+			"test": {Name: "Test", Type: config.TypeFile, Path: "/tmp/test"},
+		}},
+		activeState:       &config.ActiveState{Targets: map[string]string{}},
+		profiles:          map[string][]string{"test": {"personal", "work"}},
+		targetIDs:         []string{"test"},
+		selectedTargetIdx: 0,
+		focus:             focusTargets,
+		width:             100,
+		height:            30,
+	}
+	_, mainX, _, _, _ := m.layoutMetrics()
+
+	updated, _ := m.Update(tea.MouseMsg{Type: tea.MouseLeft, X: mainX + 2, Y: panelContentStartY() + 1})
+	got := updated.(model)
+	if got.selectedProfileIdx != 0 || got.focus != focusProfiles {
+		t.Fatalf("expected click on first visible profile row to select first profile, got idx=%d focus=%v", got.selectedProfileIdx, got.focus)
+	}
+}
+
+func TestTUIMouseSecondClickSwitchesSelectedProfile(t *testing.T) {
+	m := model{
+		config: &config.Config{Targets: map[string]config.Target{
+			"codex": {Name: "Codex CLI/Desktop", Type: config.TypeFile, Path: "/tmp/codex"},
+		}},
+		activeState:        &config.ActiveState{Targets: map[string]string{}},
+		profiles:           map[string][]string{"codex": {"personal", "work"}},
+		targetIDs:          []string{"codex"},
+		selectedTargetIdx:  0,
+		selectedProfileIdx: 0,
+		focus:              focusProfiles,
+		width:              100,
+		height:             30,
+		codexUsageLoaded:   true,
+		codexUsage:         map[string]usage.CodexProfileUsage{},
+		lastMouseTargetID:  "codex",
+		lastMouseProfile:   "personal",
+		lastMouseAt:        time.Now(),
+	}
+	_, mainX, _, _, _ := m.layoutMetrics()
+
+	updated, cmd := m.Update(tea.MouseMsg{Type: tea.MouseLeft, X: mainX + 2, Y: panelContentStartY() + 2})
+	got := updated.(model)
+	if cmd == nil {
+		t.Fatalf("expected second click on selected profile to start switch command")
+	}
+	if !got.busy || !strings.Contains(got.busyMsg, "Switching codex to \"personal\"") {
+		t.Fatalf("expected busy switch state for personal profile, got busy=%v message=%q", got.busy, got.busyMsg)
+	}
+}
+
 func TestTUIShowsNewLoginHotkeyOnlyForResettableTargets(t *testing.T) {
 	cfg := config.GetDefaultConfig()
 	state := &config.ActiveState{Targets: make(map[string]string)}

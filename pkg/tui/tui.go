@@ -72,6 +72,9 @@ type model struct {
 	spinner            spinner.Model
 	busy               bool
 	busyMsg            string
+	lastMouseTargetID  string
+	lastMouseProfile   string
+	lastMouseAt        time.Time
 }
 
 type codexUsageBarState struct {
@@ -200,6 +203,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case updateAvailableMsg:
 		if m.statusMsg == "" && msg.latest != "" && msg.latest != msg.current {
@@ -514,6 +520,154 @@ func (m model) selectedTargetID() string {
 		return ""
 	}
 	return m.targetIDs[m.selectedTargetIdx]
+}
+
+func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.busy || m.focus == focusInput || m.overwritePrompt {
+		return m, nil
+	}
+	if msg.Type != tea.MouseLeft {
+		return m, nil
+	}
+
+	if idx, ok := m.mouseTargetIndex(msg.X, msg.Y); ok {
+		m.focus = focusTargets
+		if idx != m.selectedTargetIdx {
+			m.selectedTargetIdx = idx
+			m.selectedProfileIdx = 0
+			m.statusMsg = ""
+			return m, m.maybeFetchSelectedUsage()
+		}
+		m.statusMsg = ""
+		return m, nil
+	}
+
+	if idx, ok := m.mouseProfileIndex(msg.X, msg.Y); ok {
+		targetID := m.selectedTargetID()
+		profiles := m.profiles[targetID]
+		if idx < 0 || idx >= len(profiles) {
+			return m, nil
+		}
+		profileName := profiles[idx]
+		now := time.Now()
+		isRepeatClick := m.focus == focusProfiles &&
+			idx == m.selectedProfileIdx &&
+			m.lastMouseTargetID == targetID &&
+			m.lastMouseProfile == profileName &&
+			now.Sub(m.lastMouseAt) <= 650*time.Millisecond
+
+		m.focus = focusProfiles
+		m.selectedProfileIdx = idx
+		m.statusMsg = ""
+		m.lastMouseTargetID = targetID
+		m.lastMouseProfile = profileName
+		m.lastMouseAt = now
+
+		if isRepeatClick {
+			return m.startSwitchProfile(targetID, profileName)
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m model) mouseTargetIndex(x, y int) (int, bool) {
+	sbWidth, _, _, _, _ := m.layoutMetrics()
+	if x < 1 || x > sbWidth+4 {
+		return 0, false
+	}
+	row := y - panelContentStartY()
+	if row < 1 || row > len(m.targetIDs) {
+		return 0, false
+	}
+	return row - 1, true
+}
+
+func (m model) mouseProfileIndex(x, y int) (int, bool) {
+	targetID := m.selectedTargetID()
+	if targetID == "" {
+		return 0, false
+	}
+	profiles := m.profiles[targetID]
+	if len(profiles) == 0 {
+		return 0, false
+	}
+	_, mainX, mainRight, _, _ := m.layoutMetrics()
+	if x < mainX || x > mainRight {
+		return 0, false
+	}
+
+	rowY := panelContentStartY() + 1
+	for i, profile := range profiles {
+		height := m.profileRenderedHeight(targetID, profile)
+		if y >= rowY && y < rowY+height {
+			return i, true
+		}
+		rowY += height
+		if i < len(profiles)-1 {
+			rowY++
+		}
+	}
+	return 0, false
+}
+
+func (m model) profileRenderedHeight(targetID, profile string) int {
+	activeProfile := existingProfileName(m.profiles[targetID], m.activeState.Targets[targetID])
+	isCurrentlyActive := profile == activeProfile
+	activeMarker := "  "
+	if isCurrentlyActive {
+		activeMarker = "✔ "
+	}
+
+	var row string
+	switch targetID {
+	case "codex":
+		row = m.renderCodexProfileRow(profile, activeMarker, false, isCurrentlyActive)
+	case "agy":
+		row = m.renderAgyProfileRow(profile, activeMarker, false, isCurrentlyActive)
+	case "claude_cli", "claude_desktop_oauth":
+		row = m.renderClaudeProfileRow(targetID, profile, activeMarker, false, isCurrentlyActive)
+	default:
+		row = m.renderBasicProfileRow(targetID, profile, activeMarker, false, isCurrentlyActive)
+	}
+	if row == "" {
+		return 1
+	}
+	return strings.Count(row, "\n") + 1
+}
+
+func (m model) layoutMetrics() (sidebarWidth, mainX, mainRight, mainWidth, contentHeight int) {
+	width := m.width
+	if width == 0 {
+		width = 80
+	}
+	height := m.height
+	if height == 0 {
+		height = 24
+	}
+	sidebarWidth = width / 4
+	if sidebarWidth < 28 {
+		sidebarWidth = 28
+	}
+	if sidebarWidth > 42 {
+		sidebarWidth = 42
+	}
+	mainWidth = width - sidebarWidth - 8
+	if mainWidth < 30 {
+		mainWidth = 30
+	}
+	mainX = sidebarWidth + 5
+	mainRight = mainX + mainWidth + 3
+	contentHeight = height - 8
+	if contentHeight < 8 {
+		contentHeight = 8
+	}
+	return sidebarWidth, mainX, mainRight, mainWidth, contentHeight
+}
+
+func panelContentStartY() int {
+	return 5
 }
 
 func (m *model) invalidateCodexUsage() {
@@ -1660,7 +1814,7 @@ func RunTUI(appVersion string) error {
 		return err
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }

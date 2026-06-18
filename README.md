@@ -8,6 +8,10 @@ VibeSwap is a small, lightweight, and performant account and token switcher for 
 
 It allows you to switch between accounts/tokens while preserving each tool's local configuration and workspace state where the tool supports it.
 
+> VibeSwap is early-release, experimental software. It is designed to be careful
+> with local session state, but account switching always touches auth files.
+> Keep normal backups and use it with care while the project settles.
+
 ```bash
 curl -fsSL https://vibeswap.cc/install | bash
 ```
@@ -279,6 +283,7 @@ Targets pane:
 
 *   `Up` / `Down` or `j` / `k`: Move through configured targets.
 *   `Tab`, `Right`, or `Enter`: Focus the selected target's profiles, or show that no profiles are saved yet.
+*   Mouse: Click a target row to select it.
 *   `s`: Save the selected target's current credentials as a profile.
 *   `l`: Clear the selected target's live local session for a new login. This appears only for supported desktop targets such as `claude_desktop_oauth`.
 *   `q` or `Ctrl+C`: Quit.
@@ -288,6 +293,7 @@ Profiles pane:
 *   `Up` / `Down` or `j` / `k`: Move through saved profiles.
 *   `Tab`, `Esc`, or `Left`: Return to the targets pane.
 *   `Enter`: Switch the selected target to the highlighted profile.
+*   Mouse: Click a profile to select it; click the selected profile again to switch.
 *   `r`: Rename the highlighted profile.
 *   `d`: Delete the highlighted profile.
 *   `a`: Apply the highlighted profile name across all configured targets that have a matching saved profile.
