@@ -320,6 +320,31 @@ func TestTUIRendersCodexProfileRowsWithProgressBars(t *testing.T) {
 	}
 }
 
+func TestTUIRendersAgyProfileRowsWithProgressBars(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"agy": {"wtd"},
+		},
+		agyUsage: map[string]usage.AgyProfileUsage{
+			"wtd": {
+				Windows: []usage.NamedUsageWindow{
+					{Label: "Gemini", UsedPercent: 42, ResetAt: time.Now().Add(4*time.Hour + 30*time.Minute)},
+					{Label: "Claude+GPT", UsedPercent: 18, ResetAt: time.Now().Add(6*24*time.Hour + 2*time.Hour)},
+				},
+			},
+		},
+		agyUsageLoaded: true,
+		mainPanelWidth: 90,
+	}
+
+	row := m.renderAgyProfileRow("wtd", "  ", true, false)
+	for _, want := range []string{"wtd", "Gemini", "42% used", "Claude+GPT", "18% used", "resets in", "━", "─"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("agy usage row missing %q:\n%s", want, row)
+		}
+	}
+}
+
 func TestTUIRendersProfileSeparators(t *testing.T) {
 	m := model{
 		profiles: map[string][]string{

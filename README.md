@@ -297,12 +297,15 @@ Profile rows are separated with blank spacing for readability. Long-running
 save, switch, global switch, and new-login actions show a spinner while the file
 operation is in progress.
 
-When the selected target is `codex`, each saved profile row shows read-only
-usage for that profile:
+When the selected target is `codex` or `agy`, each saved profile row shows
+read-only usage for that profile:
 
 ```text
   work      5h      42% used ━━━━━━━━━━━━━━━━━━━━━────────────  resets in 4h 30m
             weekly  18% used ━━━━━━━━━────────────────────────  resets in 6d 2h
+
+  wtd       Gemini     42% used ━━━━━━━━━━━━━━━━━━━━━──────────  resets in 4h 30m
+            Claude+GPT 18% used ━━━━━━━━━──────────────────────  resets in 6d 2h
 ```
 
 VibeSwap reads the saved profile's existing Codex access token and calls the
@@ -310,6 +313,11 @@ Codex usage endpoint. Percentages are shown as quota used, with the reset
 countdown from Codex's reported reset time. VibeSwap does not refresh tokens or
 mutate saved profiles; if a token is stale, usage is shown as unavailable until
 Codex refreshes that profile through normal login/use.
+
+For `agy`, VibeSwap reads the saved Antigravity OAuth credentials from the
+profile snapshot and calls Google's Cloud Code quota endpoints. It groups model
+quotas into Gemini and Claude+GPT pools, shows percent used plus reset
+countdowns, and does not refresh or mutate saved credentials.
 
 ### Non-Interactive CLI
 

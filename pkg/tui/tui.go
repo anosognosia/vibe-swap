@@ -60,6 +60,9 @@ type model struct {
 	codexUsage         map[string]usage.CodexProfileUsage
 	codexUsageLoading  bool
 	codexUsageLoaded   bool
+	agyUsage           map[string]usage.AgyProfileUsage
+	agyUsageLoading    bool
+	agyUsageLoaded     bool
 	mainPanelWidth     int
 	codexUsageBars     map[string]codexUsageBarState
 	spinner            spinner.Model
@@ -81,6 +84,10 @@ type updateAvailableMsg struct {
 
 type codexUsageMsg struct {
 	usages map[string]usage.CodexProfileUsage
+}
+
+type agyUsageMsg struct {
+	usages map[string]usage.AgyProfileUsage
 }
 
 type usageAnimationTickMsg struct{}
@@ -147,6 +154,9 @@ func NewModel(appVersion string) (model, error) {
 	if m.selectedTargetID() == "codex" && len(m.profiles["codex"]) > 0 {
 		m.codexUsageLoading = true
 	}
+	if m.selectedTargetID() == "agy" && len(m.profiles["agy"]) > 0 {
+		m.agyUsageLoading = true
+	}
 	return m, nil
 }
 
@@ -157,6 +167,10 @@ func (m model) Init() tea.Cmd {
 	}
 	if m.selectedTargetID() == "codex" && len(m.profiles["codex"]) > 0 {
 		cmds = append(cmds, fetchCodexUsageCmd(m.profiles["codex"]))
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	if m.selectedTargetID() == "agy" && len(m.profiles["agy"]) > 0 {
+		cmds = append(cmds, fetchAgyUsageCmd(m.profiles["agy"]))
 		cmds = append(cmds, m.spinner.Tick)
 	}
 	return tea.Batch(cmds...)
@@ -184,11 +198,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.codexUsageLoading = false
 		return m, m.startCodexUsageBarAnimations()
 
+	case agyUsageMsg:
+		m.agyUsage = msg.usages
+		m.agyUsageLoaded = true
+		m.agyUsageLoading = false
+		return m, nil
+
 	case usageAnimationTickMsg:
 		return m.updateCodexUsageBarAnimations()
 
 	case spinner.TickMsg:
-		if !m.busy && !m.codexUsageLoading {
+		if !m.busy && !m.codexUsageLoading && !m.agyUsageLoading {
 			return m, nil
 		}
 		var spinnerCmd tea.Cmd
@@ -231,8 +251,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.activeState, _ = config.LoadActiveState()
 						if targetID == "codex" {
 							m.invalidateCodexUsage()
-							cmd = m.maybeFetchCodexUsage()
 						}
+						if targetID == "agy" {
+							m.invalidateAgyUsage()
+						}
+						cmd = m.maybeFetchSelectedUsage()
 						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
 						m.focus = focusProfiles
 					}
@@ -289,6 +312,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(profiles) > 0 {
 					m.focus = focusProfiles
 					m.selectedProfileIdx = 0
+					cmd = m.maybeFetchSelectedUsage()
 				}
 			} else {
 				m.focus = focusTargets
@@ -305,7 +329,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusTargets {
 				if m.selectedTargetIdx > 0 {
 					m.selectedTargetIdx--
-					cmd = m.maybeFetchCodexUsage()
+					cmd = m.maybeFetchSelectedUsage()
 				}
 			} else if m.focus == focusProfiles {
 				if m.selectedProfileIdx > 0 {
@@ -317,7 +341,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusTargets {
 				if m.selectedTargetIdx < len(m.targetIDs)-1 {
 					m.selectedTargetIdx++
-					cmd = m.maybeFetchCodexUsage()
+					cmd = m.maybeFetchSelectedUsage()
 				}
 			} else if m.focus == focusProfiles {
 				targetID := m.targetIDs[m.selectedTargetIdx]
@@ -343,7 +367,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.focus = focusProfiles
 						m.selectedProfileIdx = 0
 						m.statusMsg = ""
-						cmd = m.maybeFetchCodexUsage()
+						cmd = m.maybeFetchSelectedUsage()
 					} else {
 						m.statusMsg = "No profiles saved yet. Press 's' to save active credentials."
 						m.statusIsError = false
@@ -433,8 +457,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.activeState, _ = config.LoadActiveState()
 						if targetID == "codex" {
 							m.invalidateCodexUsage()
-							cmd = m.maybeFetchCodexUsage()
 						}
+						if targetID == "agy" {
+							m.invalidateAgyUsage()
+						}
+						cmd = m.maybeFetchSelectedUsage()
 
 						// Adjust selection idx if it's out of bounds now
 						newProfiles := m.profiles[targetID]
@@ -466,6 +493,23 @@ func (m *model) invalidateCodexUsage() {
 	m.codexUsageBars = nil
 }
 
+func (m *model) invalidateAgyUsage() {
+	m.agyUsage = nil
+	m.agyUsageLoaded = false
+	m.agyUsageLoading = false
+}
+
+func (m *model) maybeFetchSelectedUsage() tea.Cmd {
+	switch m.selectedTargetID() {
+	case "codex":
+		return m.maybeFetchCodexUsage()
+	case "agy":
+		return m.maybeFetchAgyUsage()
+	default:
+		return nil
+	}
+}
+
 func (m *model) maybeFetchCodexUsage() tea.Cmd {
 	if m.selectedTargetID() != "codex" || len(m.profiles["codex"]) == 0 || m.codexUsageLoaded || m.codexUsageLoading {
 		return nil
@@ -480,6 +524,23 @@ func fetchCodexUsageCmd(profileNames []string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		return codexUsageMsg{usages: usage.FetchCodexProfileUsages(ctx, names)}
+	}
+}
+
+func (m *model) maybeFetchAgyUsage() tea.Cmd {
+	if m.selectedTargetID() != "agy" || len(m.profiles["agy"]) == 0 || m.agyUsageLoaded || m.agyUsageLoading {
+		return nil
+	}
+	m.agyUsageLoading = true
+	return tea.Batch(fetchAgyUsageCmd(m.profiles["agy"]), m.spinner.Tick)
+}
+
+func fetchAgyUsageCmd(profileNames []string) tea.Cmd {
+	names := append([]string(nil), profileNames...)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		return agyUsageMsg{usages: usage.FetchAgyProfileUsages(ctx, names)}
 	}
 }
 
@@ -624,8 +685,11 @@ func (m model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
 	case tuiActionSave, tuiActionOverwrite:
 		if msg.targetID == "codex" {
 			m.invalidateCodexUsage()
-			cmd = m.maybeFetchCodexUsage()
 		}
+		if msg.targetID == "agy" {
+			m.invalidateAgyUsage()
+		}
+		cmd = m.maybeFetchSelectedUsage()
 		m.selectedProfileIdx = profileIndex(m.profiles[msg.targetID], msg.profileName)
 		if msg.action == tuiActionOverwrite {
 			m.statusMsg = fmt.Sprintf("Overwrote profile %q with active credentials", msg.profileName)
@@ -923,6 +987,13 @@ func (m model) View() string {
 					}
 					continue
 				}
+				if targetID == "agy" {
+					mainContent.WriteString(m.renderAgyProfileRow(profile, activeMarker, isSelected, isCurrentlyActive) + "\n")
+					if i < len(profiles)-1 {
+						mainContent.WriteString(m.renderProfileSeparator() + "\n")
+					}
+					continue
+				}
 
 				line := fmt.Sprintf("%s%s", activeMarker, profile)
 				if isCurrentlyActive && !isSelected {
@@ -991,7 +1062,7 @@ func hotkey(key string, label string) string {
 }
 
 func (m model) renderCodexProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
-	labelWidth := m.codexProfileLabelWidth()
+	labelWidth := m.profileLabelWidth("codex")
 	label := fmt.Sprintf("%s%s", activeMarker, profile)
 	if isSelected {
 		label = selectedItemStyle.Render(label)
@@ -1014,8 +1085,12 @@ func (m model) renderCodexProfileRow(profile, activeMarker string, isSelected, i
 }
 
 func (m model) codexProfileLabelWidth() int {
+	return m.profileLabelWidth("codex")
+}
+
+func (m model) profileLabelWidth(targetID string) int {
 	width := 10
-	for _, profile := range m.profiles["codex"] {
+	for _, profile := range m.profiles[targetID] {
 		if lipgloss.Width(profile) > width {
 			width = lipgloss.Width(profile)
 		}
@@ -1024,6 +1099,29 @@ func (m model) codexProfileLabelWidth() int {
 		width = 18
 	}
 	return width
+}
+
+func (m model) renderAgyProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
+	labelWidth := m.profileLabelWidth("agy")
+	label := fmt.Sprintf("%s%s", activeMarker, profile)
+	if isSelected {
+		label = selectedItemStyle.Render(label)
+	} else if isCurrentlyActive {
+		label = activeItemStyle.Render(label)
+	} else {
+		label = normalItemStyle.Render(label)
+	}
+	if padWidth := labelWidth - lipgloss.Width(profile); padWidth > 0 {
+		label += panelText.Render(strings.Repeat(" ", padWidth))
+	}
+
+	if m.agyUsageLoading && !m.agyUsageLoaded {
+		return label + panelText.Render("  ") + panelMutedText.Render(m.spinner.View()+" loading usage...")
+	}
+	if !m.agyUsageLoaded {
+		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
+	}
+	return m.renderAgyUsageLine(label, labelWidth, m.agyUsage[profile])
 }
 
 func (m model) renderProfileSeparator() string {
@@ -1061,6 +1159,39 @@ func (m model) renderCodexUsageLine(label string, labelWidth int, profile string
 	weeklyReset := panelText.Render("  " + formatResetIn(profileUsage.Weekly.ResetAt, time.Now()))
 	return label + sessionText + sessionBar + sessionReset +
 		"\n" + panelText.Render(spacer) + weeklyText + weeklyBar + weeklyReset
+}
+
+func (m model) renderAgyUsageLine(label string, labelWidth int, profileUsage usage.AgyProfileUsage) string {
+	if profileUsage.Error != "" {
+		return label + panelText.Render("  ") + panelMutedText.Render("usage unavailable")
+	}
+	if len(profileUsage.Windows) == 0 {
+		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
+	}
+	barWidth := m.mainPanelWidth - labelWidth - 48
+	if barWidth > 72 {
+		barWidth = 72
+	}
+	if barWidth < 10 {
+		barWidth = 10
+	}
+
+	var b strings.Builder
+	spacer := strings.Repeat(" ", lipgloss.Width(label))
+	for i, window := range profileUsage.Windows {
+		if i > 0 {
+			b.WriteString("\n")
+			b.WriteString(panelText.Render(spacer))
+		} else {
+			b.WriteString(label)
+		}
+		ratio := percentToRatio(window.UsedPercent)
+		usageBar := renderUsageProgress(ratio, barWidth)
+		b.WriteString(panelText.Render(fmt.Sprintf("  %-10s %3d%% used ", window.Label, window.UsedPercent)))
+		b.WriteString(usageBar)
+		b.WriteString(panelText.Render("  " + formatResetIn(window.ResetAt, time.Now())))
+	}
+	return b.String()
 }
 
 func formatResetIn(resetAt, now time.Time) string {

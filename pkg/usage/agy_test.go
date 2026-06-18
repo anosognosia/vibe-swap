@@ -1,0 +1,123 @@
+package usage
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestAgyFetcherFetchProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	writeAgyProfile(t, tmpDir, "work", `{
+		"access_token": "access-token",
+		"expiry_date": 4102444800000,
+		"project_id": "stored-project"
+	}`)
+
+	var gotAuth, gotUserAgent, gotModelsBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotUserAgent = r.Header.Get("User-Agent")
+		switch r.URL.Path {
+		case "/load":
+			_, _ = fmt.Fprint(w, `{
+				"planInfo": {"planType": "pro"},
+				"cloudaicompanionProject": "loaded-project"
+			}`)
+		case "/models":
+			body, _ := io.ReadAll(r.Body)
+			gotModelsBody = string(body)
+			_, _ = fmt.Fprint(w, `{
+				"models": {
+					"gemini-3-pro-low": {
+						"displayName": "Gemini 3 Pro Low",
+						"quotaInfo": {
+							"remainingFraction": 0.58,
+							"resetTime": "2100-01-01T00:00:00Z"
+						}
+					},
+					"claude-sonnet-4": {
+						"displayName": "Claude Sonnet 4",
+						"quotaInfo": {
+							"remainingFraction": 0.82,
+							"resetTime": "2100-01-08T00:00:00Z"
+						}
+					}
+				}
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher := AgyFetcher{
+		Client:                  server.Client(),
+		LoadCodeAssistURL:       server.URL + "/load",
+		FetchAvailableModelsURL: server.URL + "/models",
+	}
+	usage := fetcher.FetchProfile(context.Background(), "work")
+	if usage.Error != "" {
+		t.Fatalf("unexpected agy usage error: %s", usage.Error)
+	}
+	if usage.Plan != "pro" {
+		t.Fatalf("unexpected plan: %q", usage.Plan)
+	}
+	if len(usage.Windows) != 2 {
+		t.Fatalf("expected 2 usage windows, got %#v", usage.Windows)
+	}
+	if usage.Windows[0].Label != "Gemini" || usage.Windows[0].UsedPercent != 42 {
+		t.Fatalf("unexpected Gemini window: %#v", usage.Windows[0])
+	}
+	if usage.Windows[1].Label != "Claude+GPT" || usage.Windows[1].UsedPercent != 18 {
+		t.Fatalf("unexpected Claude+GPT window: %#v", usage.Windows[1])
+	}
+	if gotAuth != "Bearer access-token" {
+		t.Fatalf("authorization header = %q", gotAuth)
+	}
+	if gotUserAgent != "antigravity" {
+		t.Fatalf("user-agent = %q", gotUserAgent)
+	}
+	if !strings.Contains(gotModelsBody, "stored-project") {
+		t.Fatalf("expected stored project id in models request, got %s", gotModelsBody)
+	}
+}
+
+func TestAgyFetcherDoesNotRefreshExpiredToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	writeAgyProfile(t, tmpDir, "personal", `{
+		"access_token": "expired-token",
+		"refresh_token": "refresh-token",
+		"expiry_date": 1
+	}`)
+
+	usage := (AgyFetcher{}).FetchProfile(context.Background(), "personal")
+	if !strings.Contains(usage.Error, "access token expired") {
+		t.Fatalf("expected expired token error, got %#v", usage)
+	}
+}
+
+func writeAgyProfile(t *testing.T, home, profileName, oauthJSON string) {
+	t.Helper()
+	profileDir := filepath.Join(home, ".config", "vibeswap", "profiles", "agy")
+	if err := os.MkdirAll(profileDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{
+		"files": {
+			"~/.gemini/oauth_creds.json": %q
+		}
+	}`, base64.StdEncoding.EncodeToString([]byte(oauthJSON)))
+	if err := os.WriteFile(filepath.Join(profileDir, profileName+".json"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
