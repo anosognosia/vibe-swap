@@ -364,33 +364,11 @@ pre {
 
 .tui-preview {
   max-width: 680px;
-  overflow: hidden;
-  background: var(--md-sys-color-surface-container-low);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: var(--md-sys-shape-corner-medium);
-  box-shadow: var(--md-sys-elevation-1);
-}
-
-.tui-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  color: var(--md-sys-color-on-primary-container);
-  background: var(--md-sys-color-primary-container);
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-}
-
-.tui-title span {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-tertiary);
 }
 
 .tui-preview pre {
   color: var(--md-sys-color-on-surface);
-  background: var(--md-sys-color-surface-container-low);
+  background: #130809;
 }
 
 .quickstart ol {
