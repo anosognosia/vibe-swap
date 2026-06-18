@@ -297,15 +297,20 @@ Profile rows are separated with blank spacing for readability. Long-running
 save, switch, global switch, and new-login actions show a spinner while the file
 operation is in progress.
 
-When the selected target is `codex` or `agy`, each saved profile row shows
-read-only usage for that profile:
+When the selected target is `codex`, `claude_cli`,
+`claude_desktop_oauth`, or `agy`, each saved profile row shows read-only usage
+for that profile when VibeSwap can read it:
 
 ```text
-  work      5h      42% used ━━━━━━━━━━━━━━━━━━━━━────────────  resets in 4h 30m
-            weekly  18% used ━━━━━━━━━────────────────────────  resets in 6d 2h
+  work      5h       42% used ━━━━━━━━━━━━━━━━━━━━━────────────  resets in 4h 30m
+            weekly   18% used ━━━━━━━━━────────────────────────  resets in 6d 2h
 
-  wtd       Gemini     42% used ━━━━━━━━━━━━━━━━━━━━━──────────  resets in 4h 30m
-            Claude+GPT 18% used ━━━━━━━━━──────────────────────  resets in 6d 2h
+  claude   5h        0% used ─────────────────────────────────  resets in 2h 12m
+           weekly    0% used ─────────────────────────────────  resets in 5d 23h
+           extra    79% used ━━━━━━━━━━━━━━━━━━━━━━━━━━━──────
+
+  wtd      Gemini    42% used ━━━━━━━━━━━━━━━━━━━━━───────────  resets in 4h 30m
+           C+GPT wk  18% used ━━━━━━━━━───────────────────────  resets in 6d 2h
 ```
 
 VibeSwap reads the saved profile's existing Codex access token and calls the
@@ -313,6 +318,15 @@ Codex usage endpoint. Percentages are shown as quota used, with the reset
 countdown from Codex's reported reset time. VibeSwap does not refresh tokens or
 mutate saved profiles; if a token is stale, usage is shown as unavailable until
 Codex refreshes that profile through normal login/use.
+
+For Claude, VibeSwap first tries Claude web usage for the saved profile's
+organization. For `claude_desktop_oauth`, it tries the saved Claude Desktop
+session cookie first; for both Claude targets it can also use Claude cookies
+from Chrome or Microsoft Edge on macOS. If web usage is unavailable, it falls
+back to the saved Claude Code OAuth token and then the Claude CLI `/usage`
+output. Claude can return coding-plan usage under an `extra_usage` window, which
+VibeSwap displays as `extra`. VibeSwap does not refresh Claude OAuth tokens or
+mutate saved Claude profiles while reading usage.
 
 For `agy`, VibeSwap reads the saved Antigravity OAuth credentials from the
 profile snapshot and calls Google's Cloud Code quota endpoints. It groups model

@@ -42,7 +42,8 @@ type model struct {
 	config             *config.Config
 	activeState        *config.ActiveState
 	profiles           map[string][]string // targetID -> list of profiles
-	targetIDs          []string            // sorted target IDs
+	profileMetadata    map[string]map[string]engine.ProfileMetadata
+	targetIDs          []string // sorted target IDs
 	selectedTargetIdx  int
 	selectedProfileIdx int
 	focus              focusArea
@@ -63,6 +64,9 @@ type model struct {
 	agyUsage           map[string]usage.AgyProfileUsage
 	agyUsageLoading    bool
 	agyUsageLoaded     bool
+	claudeUsage        map[string]usage.ClaudeProfileUsage
+	claudeUsageLoading bool
+	claudeUsageLoaded  bool
 	mainPanelWidth     int
 	codexUsageBars     map[string]codexUsageBarState
 	spinner            spinner.Model
@@ -88,6 +92,10 @@ type codexUsageMsg struct {
 
 type agyUsageMsg struct {
 	usages map[string]usage.AgyProfileUsage
+}
+
+type claudeUsageMsg struct {
+	usages map[string]usage.ClaudeProfileUsage
 }
 
 type usageAnimationTickMsg struct{}
@@ -142,20 +150,24 @@ func NewModel(appVersion string) (model, error) {
 	)
 
 	m := model{
-		config:      cfg,
-		activeState: state,
-		profiles:    profiles,
-		targetIDs:   targetIDs,
-		focus:       focusTargets,
-		input:       ti,
-		appVersion:  appVersion,
-		spinner:     sp,
+		config:          cfg,
+		activeState:     state,
+		profiles:        profiles,
+		profileMetadata: engine.ListProfileMetadata(profiles),
+		targetIDs:       targetIDs,
+		focus:           focusTargets,
+		input:           ti,
+		appVersion:      appVersion,
+		spinner:         sp,
 	}
 	if m.selectedTargetID() == "codex" && len(m.profiles["codex"]) > 0 {
 		m.codexUsageLoading = true
 	}
 	if m.selectedTargetID() == "agy" && len(m.profiles["agy"]) > 0 {
 		m.agyUsageLoading = true
+	}
+	if m.selectedTargetSupportsClaudeUsage() && len(m.profiles[m.selectedTargetID()]) > 0 {
+		m.claudeUsageLoading = true
 	}
 	return m, nil
 }
@@ -171,6 +183,10 @@ func (m model) Init() tea.Cmd {
 	}
 	if m.selectedTargetID() == "agy" && len(m.profiles["agy"]) > 0 {
 		cmds = append(cmds, fetchAgyUsageCmd(m.profiles["agy"]))
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	if m.selectedTargetSupportsClaudeUsage() && len(m.profiles[m.selectedTargetID()]) > 0 {
+		cmds = append(cmds, fetchClaudeUsageCmd(m.selectedTargetID(), m.profiles[m.selectedTargetID()]))
 		cmds = append(cmds, m.spinner.Tick)
 	}
 	return tea.Batch(cmds...)
@@ -204,11 +220,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agyUsageLoading = false
 		return m, nil
 
+	case claudeUsageMsg:
+		m.claudeUsage = msg.usages
+		m.claudeUsageLoaded = true
+		m.claudeUsageLoading = false
+		return m, nil
+
 	case usageAnimationTickMsg:
 		return m.updateCodexUsageBarAnimations()
 
 	case spinner.TickMsg:
-		if !m.busy && !m.codexUsageLoading && !m.agyUsageLoading {
+		if !m.busy && !m.codexUsageLoading && !m.agyUsageLoading && !m.claudeUsageLoading {
 			return m, nil
 		}
 		var spinnerCmd tea.Cmd
@@ -248,12 +270,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusMsg = fmt.Sprintf("Renamed profile %q to %q", m.renameOldName, name)
 						m.statusIsError = false
 						m.profiles, _ = engine.ListProfiles()
+						m.profileMetadata = engine.ListProfileMetadata(m.profiles)
 						m.activeState, _ = config.LoadActiveState()
 						if targetID == "codex" {
 							m.invalidateCodexUsage()
 						}
 						if targetID == "agy" {
 							m.invalidateAgyUsage()
+						}
+						if targetID == "claude_cli" || targetID == "claude_desktop_oauth" {
+							m.invalidateClaudeUsage()
 						}
 						cmd = m.maybeFetchSelectedUsage()
 						m.selectedProfileIdx = profileIndex(m.profiles[targetID], name)
@@ -454,12 +480,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusIsError = false
 						// Reload profiles and active state
 						m.profiles, _ = engine.ListProfiles()
+						m.profileMetadata = engine.ListProfileMetadata(m.profiles)
 						m.activeState, _ = config.LoadActiveState()
 						if targetID == "codex" {
 							m.invalidateCodexUsage()
 						}
 						if targetID == "agy" {
 							m.invalidateAgyUsage()
+						}
+						if targetID == "claude_cli" || targetID == "claude_desktop_oauth" {
+							m.invalidateClaudeUsage()
 						}
 						cmd = m.maybeFetchSelectedUsage()
 
@@ -499,14 +529,31 @@ func (m *model) invalidateAgyUsage() {
 	m.agyUsageLoading = false
 }
 
+func (m *model) invalidateClaudeUsage() {
+	m.claudeUsage = nil
+	m.claudeUsageLoaded = false
+	m.claudeUsageLoading = false
+}
+
 func (m *model) maybeFetchSelectedUsage() tea.Cmd {
 	switch m.selectedTargetID() {
 	case "codex":
 		return m.maybeFetchCodexUsage()
 	case "agy":
 		return m.maybeFetchAgyUsage()
+	case "claude_cli", "claude_desktop_oauth":
+		return m.maybeFetchClaudeUsage()
 	default:
 		return nil
+	}
+}
+
+func (m model) selectedTargetSupportsClaudeUsage() bool {
+	switch m.selectedTargetID() {
+	case "claude_cli", "claude_desktop_oauth":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -541,6 +588,24 @@ func fetchAgyUsageCmd(profileNames []string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		return agyUsageMsg{usages: usage.FetchAgyProfileUsages(ctx, names)}
+	}
+}
+
+func (m *model) maybeFetchClaudeUsage() tea.Cmd {
+	targetID := m.selectedTargetID()
+	if !m.selectedTargetSupportsClaudeUsage() || len(m.profiles[targetID]) == 0 || m.claudeUsageLoaded || m.claudeUsageLoading {
+		return nil
+	}
+	m.claudeUsageLoading = true
+	return tea.Batch(fetchClaudeUsageCmd(targetID, m.profiles[targetID]), m.spinner.Tick)
+}
+
+func fetchClaudeUsageCmd(targetID string, profileNames []string) tea.Cmd {
+	names := append([]string(nil), profileNames...)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		return claudeUsageMsg{usages: usage.FetchClaudeProfileUsages(ctx, targetID, names)}
 	}
 }
 
@@ -679,6 +744,7 @@ func (m model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.profiles, _ = engine.ListProfiles()
+	m.profileMetadata = engine.ListProfileMetadata(m.profiles)
 	m.activeState, _ = config.LoadActiveState()
 	cmd := tea.Cmd(nil)
 	switch msg.action {
@@ -688,6 +754,9 @@ func (m model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
 		}
 		if msg.targetID == "agy" {
 			m.invalidateAgyUsage()
+		}
+		if msg.targetID == "claude_cli" || msg.targetID == "claude_desktop_oauth" {
+			m.invalidateClaudeUsage()
 		}
 		cmd = m.maybeFetchSelectedUsage()
 		m.selectedProfileIdx = profileIndex(m.profiles[msg.targetID], msg.profileName)
@@ -892,9 +961,12 @@ func (m model) View() string {
 		height = 24 // Safe default
 	}
 
-	sbWidth := width / 3
-	if sbWidth < 25 {
-		sbWidth = 25
+	sbWidth := width / 4
+	if sbWidth < 28 {
+		sbWidth = 28
+	}
+	if sbWidth > 42 {
+		sbWidth = 42
 	}
 	mainWidth := width - sbWidth - 8
 	if mainWidth < 30 {
@@ -924,14 +996,36 @@ func (m model) View() string {
 			bullet = grayText.Render("○ ")
 		}
 
-		activeProfile := existingProfileName(m.profiles[targetID], m.activeState.Targets[targetID])
-		if activeProfile == "" {
-			activeProfile = grayText.Render("none")
+		targetName := truncateString(target.Name, sbWidth-5)
+		line := fmt.Sprintf(" %s%s", bullet, targetName)
+		if sbWidth >= 30 {
+			activeProfileName := existingProfileName(m.profiles[targetID], m.activeState.Targets[targetID])
+			if activeProfileName == "" {
+				activeProfileName = "none"
+			}
+			targetNameWidth := sbWidth - 13
+			if targetNameWidth < 8 {
+				targetNameWidth = 8
+			}
+			targetName = truncateString(target.Name, targetNameWidth)
+			activeWidth := sbWidth - lipgloss.Width(" "+targetName+" ()") - 4
+			if activeWidth < 4 {
+				activeWidth = 4
+			}
+			activeProfileName = truncateString(activeProfileName, activeWidth)
+			var activeProfile string
+			if activeProfileName == "none" {
+				activeProfile = grayText.Render(activeProfileName)
+			} else {
+				activeProfile = brandCyanText.Render(activeProfileName)
+			}
+			line = fmt.Sprintf(" %s%s (%s)", bullet, targetName, activeProfile)
 		} else {
-			activeProfile = brandCyanText.Render(activeProfile)
+			if lipgloss.Width(line) > sbWidth-4 {
+				targetName = truncateString(target.Name, sbWidth-6)
+				line = fmt.Sprintf(" %s%s", bullet, targetName)
+			}
 		}
-
-		line := fmt.Sprintf(" %s%s (%s)", bullet, target.Name, activeProfile)
 
 		if i == m.selectedTargetIdx && m.focus == focusTargets {
 			sbContent.WriteString(selectedItemStyle.Render(line) + "\n")
@@ -992,17 +1086,15 @@ func (m model) View() string {
 					}
 					continue
 				}
-
-				line := fmt.Sprintf(" %s%s", activeMarker, profile)
-				if isCurrentlyActive && !isSelected {
-					line = activeItemStyle.Render(line)
+				if targetID == "claude_cli" || targetID == "claude_desktop_oauth" {
+					mainContent.WriteString(m.renderClaudeProfileRow(targetID, profile, activeMarker, isSelected, isCurrentlyActive) + "\n")
+					if i < len(profiles)-1 {
+						mainContent.WriteString(m.renderProfileSeparator() + "\n")
+					}
+					continue
 				}
 
-				if isSelected {
-					mainContent.WriteString(selectedItemStyle.Render(line) + "\n")
-				} else {
-					mainContent.WriteString(normalItemStyle.Render(line) + "\n")
-				}
+				mainContent.WriteString(m.renderBasicProfileRow(targetID, profile, activeMarker, isSelected, isCurrentlyActive) + "\n")
 				if i < len(profiles)-1 {
 					mainContent.WriteString(m.renderProfileSeparator() + "\n")
 				}
@@ -1061,6 +1153,7 @@ func hotkey(key string, label string) string {
 
 func (m model) renderCodexProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
 	labelWidth := m.profileLabelWidth("codex")
+	email := m.profileEmail("codex", profile)
 	label := fmt.Sprintf(" %s%s", activeMarker, profile)
 	if isSelected {
 		label = selectedItemStyle.Render(label)
@@ -1079,7 +1172,7 @@ func (m model) renderCodexProfileRow(profile, activeMarker string, isSelected, i
 	if !m.codexUsageLoaded {
 		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
 	}
-	return m.renderCodexUsageLine(label, labelWidth, profile, m.codexUsage[profile])
+	return m.renderCodexUsageLine(label, labelWidth, profile, m.codexUsage[profile], email)
 }
 
 func (m model) codexProfileLabelWidth() int {
@@ -1092,15 +1185,32 @@ func (m model) profileLabelWidth(targetID string) int {
 		if lipgloss.Width(profile) > width {
 			width = lipgloss.Width(profile)
 		}
+		if emailWidth := profileEmailColumnWidth(m.profileEmail(targetID, profile)); emailWidth > width {
+			width = emailWidth
+		}
+		if targetID == "agy" {
+			if emailWidth := profileEmailColumnWidth(m.agyUsage[profile].Email); emailWidth > width {
+				width = emailWidth
+			}
+		}
+		if targetID == "claude_cli" || targetID == "claude_desktop_oauth" {
+			if emailWidth := profileEmailColumnWidth(m.claudeUsage[profile].Email); emailWidth > width {
+				width = emailWidth
+			}
+		}
 	}
-	if width > 18 {
-		width = 18
+	if width > 24 {
+		width = 24
 	}
 	return width
 }
 
 func (m model) renderAgyProfileRow(profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
 	labelWidth := m.profileLabelWidth("agy")
+	profileUsage := m.agyUsage[profile]
+	if profileUsage.Email == "" {
+		profileUsage.Email = m.profileEmail("agy", profile)
+	}
 	label := fmt.Sprintf(" %s%s", activeMarker, profile)
 	if isSelected {
 		label = selectedItemStyle.Render(label)
@@ -1119,19 +1229,94 @@ func (m model) renderAgyProfileRow(profile, activeMarker string, isSelected, isC
 	if !m.agyUsageLoaded {
 		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
 	}
-	return m.renderAgyUsageLine(label, labelWidth, m.agyUsage[profile])
+	return m.renderAgyUsageLine(label, labelWidth, profileUsage)
+}
+
+func (m model) renderClaudeProfileRow(targetID, profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
+	labelWidth := m.profileLabelWidth(targetID)
+	profileUsage := m.claudeUsage[profile]
+	if profileUsage.Email == "" {
+		profileUsage.Email = m.profileEmail(targetID, profile)
+	}
+	label := fmt.Sprintf(" %s%s", activeMarker, profile)
+	if isSelected {
+		label = selectedItemStyle.Render(label)
+	} else if isCurrentlyActive {
+		label = activeItemStyle.Render(label)
+	} else {
+		label = normalItemStyle.Render(label)
+	}
+	if padWidth := labelWidth - lipgloss.Width(profile); padWidth > 0 {
+		label += panelText.Render(strings.Repeat(" ", padWidth))
+	}
+	if m.claudeUsageLoading && !m.claudeUsageLoaded {
+		return label + panelText.Render("  ") + panelMutedText.Render(m.spinner.View()+" loading usage...")
+	}
+	if !m.claudeUsageLoaded {
+		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
+	}
+	return m.renderAgyUsageLine(label, labelWidth, usage.AgyProfileUsage{
+		ProfileName: profileUsage.ProfileName,
+		Email:       profileUsage.Email,
+		Windows:     profileUsage.Windows,
+		Error:       profileUsage.Error,
+		UpdatedAt:   profileUsage.UpdatedAt,
+	})
+}
+
+func (m model) profileEmail(targetID, profile string) string {
+	if m.profileMetadata == nil || m.profileMetadata[targetID] == nil {
+		if targetID == "claude_desktop_oauth" {
+			return m.profileEmail("claude_cli", profile)
+		}
+		return ""
+	}
+	email := m.profileMetadata[targetID][profile].Email
+	if email == "" && targetID == "claude_desktop_oauth" {
+		return m.profileEmail("claude_cli", profile)
+	}
+	return email
 }
 
 func (m model) renderProfileSeparator() string {
 	return ""
 }
 
-func (m model) renderCodexUsageLine(label string, labelWidth int, profile string, profileUsage usage.CodexProfileUsage) string {
+func (m model) renderBasicProfileRow(targetID, profile, activeMarker string, isSelected, isCurrentlyActive bool) string {
+	labelWidth := m.profileLabelWidth(targetID)
+	email := m.profileEmail(targetID, profile)
+	label := fmt.Sprintf(" %s%s", activeMarker, profile)
+	if isSelected {
+		label = selectedItemStyle.Render(label)
+	} else if isCurrentlyActive {
+		label = activeItemStyle.Render(label)
+	} else {
+		label = normalItemStyle.Render(label)
+	}
+	if padWidth := labelWidth - lipgloss.Width(profile); padWidth > 0 {
+		label += panelText.Render(strings.Repeat(" ", padWidth))
+	}
+	emailLabel := profileEmailLabel(email, lipgloss.Width(label))
+	if emailLabel == "" {
+		return label
+	}
+	return label + "\n" + panelMutedText.Render(emailLabel)
+}
+
+func (m model) renderCodexUsageLine(label string, labelWidth int, profile string, profileUsage usage.CodexProfileUsage, email string) string {
+	_ = labelWidth
 	if profileUsage.Error != "" {
-		return label + panelText.Render("  ") + panelMutedText.Render("usage unavailable")
+		line := label + panelText.Render("  ") + panelMutedText.Render("usage unavailable")
+		if emailLabel := profileEmailLabel(email, lipgloss.Width(label)); emailLabel != "" {
+			line += "\n" + panelMutedText.Render(emailLabel)
+		}
+		return line
 	}
 
-	barWidth := m.mainPanelWidth - labelWidth - 46
+	resetLabel := formatResetIn(profileUsage.Session.ResetAt, time.Now())
+	weeklyResetLabel := formatResetIn(profileUsage.Weekly.ResetAt, time.Now())
+	resetWidth := maxInt(lipgloss.Width(resetLabel), lipgloss.Width(weeklyResetLabel))
+	barWidth := m.mainPanelWidth - lipgloss.Width(label) - 2 - 6 - 1 - 9 - 2 - resetWidth
 	if barWidth > 72 {
 		barWidth = 72
 	}
@@ -1151,45 +1336,201 @@ func (m model) renderCodexUsageLine(label string, labelWidth int, profile string
 	sessionPercent := int(sessionShown*100 + 0.5)
 	weeklyPercent := int(weeklyShown*100 + 0.5)
 	spacer := strings.Repeat(" ", lipgloss.Width(label))
-	sessionText := panelText.Render(fmt.Sprintf("  5h     %3d%% used ", sessionPercent))
-	weeklyText := panelText.Render(fmt.Sprintf("  weekly %3d%% used ", weeklyPercent))
-	sessionReset := panelText.Render("  " + formatResetIn(profileUsage.Session.ResetAt, time.Now()))
-	weeklyReset := panelText.Render("  " + formatResetIn(profileUsage.Weekly.ResetAt, time.Now()))
+	if emailLabel := profileEmailLabel(email, lipgloss.Width(label)); emailLabel != "" {
+		spacer = emailLabel
+	}
+	sessionText := panelText.Render(usagePercentText("5h", 6, sessionPercent))
+	weeklyText := panelText.Render(usagePercentText("weekly", 6, weeklyPercent))
+	sessionReset := panelText.Render("  " + padRight(resetLabel, resetWidth))
+	weeklyReset := panelText.Render("  " + padRight(weeklyResetLabel, resetWidth))
 	return label + sessionText + sessionBar + sessionReset +
-		"\n" + panelText.Render(spacer) + weeklyText + weeklyBar + weeklyReset
+		"\n" + panelMutedText.Render(spacer) + weeklyText + weeklyBar + weeklyReset
 }
 
 func (m model) renderAgyUsageLine(label string, labelWidth int, profileUsage usage.AgyProfileUsage) string {
+	_ = labelWidth
+	emailLabel := profileEmailLabel(profileUsage.Email, lipgloss.Width(label))
 	if profileUsage.Error != "" {
-		return label + panelText.Render("  ") + panelMutedText.Render(shortUsageError(profileUsage.Error))
+		line := label + panelText.Render("  ") + panelMutedText.Render(shortUsageError(profileUsage.Error))
+		if emailLabel != "" {
+			line += "\n" + panelMutedText.Render(emailLabel)
+		}
+		return line
 	}
 	if len(profileUsage.Windows) == 0 {
-		return label + panelText.Render("  ") + panelMutedText.Render("usage pending")
+		line := label + panelText.Render("  ") + panelMutedText.Render("usage pending")
+		if emailLabel != "" {
+			line += "\n" + panelMutedText.Render(emailLabel)
+		}
+		return line
 	}
-	barWidth := m.mainPanelWidth - labelWidth - 48
-	if barWidth > 72 {
-		barWidth = 72
-	}
-	if barWidth < 10 {
-		barWidth = 10
-	}
-
 	var b strings.Builder
 	spacer := strings.Repeat(" ", lipgloss.Width(label))
+	emailRendered := false
+	resetWidth := 0
+	windowLabelWidth := 8
+	for _, window := range profileUsage.Windows {
+		resetWidth = maxInt(resetWidth, lipgloss.Width(formatResetIn(window.ResetAt, time.Now())))
+		windowLabelWidth = maxInt(windowLabelWidth, lipgloss.Width(compactAgyUsageLabel(window.Label)))
+	}
 	for i, window := range profileUsage.Windows {
 		if i > 0 {
 			b.WriteString("\n")
-			b.WriteString(panelText.Render(spacer))
+			if i == 1 && emailLabel != "" {
+				b.WriteString(panelMutedText.Render(emailLabel))
+				emailRendered = true
+			} else {
+				b.WriteString(panelText.Render(spacer))
+			}
 		} else {
 			b.WriteString(label)
 		}
 		ratio := percentToRatio(window.UsedPercent)
+		windowLabel := compactAgyUsageLabel(window.Label)
+		resetLabel := formatResetIn(window.ResetAt, time.Now())
+		barWidth := m.mainPanelWidth - lipgloss.Width(label) - 2 - windowLabelWidth - 1 - 10 - 2 - resetWidth
+		if barWidth > 72 {
+			barWidth = 72
+		}
+		if barWidth < 8 {
+			barWidth = 8
+		}
 		usageBar := renderUsageProgress(ratio, barWidth)
-		b.WriteString(panelText.Render(fmt.Sprintf("  %-10s %3d%% used ", window.Label, window.UsedPercent)))
+		b.WriteString(panelText.Render(usagePercentText(windowLabel, windowLabelWidth, window.UsedPercent)))
 		b.WriteString(usageBar)
-		b.WriteString(panelText.Render("  " + formatResetIn(window.ResetAt, time.Now())))
+		b.WriteString(panelText.Render("  " + padRight(resetLabel, resetWidth)))
+	}
+	if emailLabel != "" && !emailRendered {
+		b.WriteString("\n")
+		b.WriteString(panelMutedText.Render(emailLabel))
 	}
 	return b.String()
+}
+
+func usagePercentText(label string, labelWidth int, percent int) string {
+	return fmt.Sprintf("  %s %3d%% used ", padRight(label, labelWidth), percent)
+}
+
+func profileEmailLabel(email string, width int) string {
+	email = compactEmailLabel(email)
+	if email == "" || width <= 0 {
+		return ""
+	}
+	const labelIndent = 3
+	emailWidth := width - labelIndent
+	if emailWidth < 4 {
+		emailWidth = width
+	}
+	if lipgloss.Width(email) > emailWidth {
+		email = truncateString(email, emailWidth)
+	}
+	return padRight(strings.Repeat(" ", minInt(labelIndent, width))+email, width)
+}
+
+func profileEmailColumnWidth(email string) int {
+	email = compactEmailLabel(email)
+	if email == "" {
+		return 0
+	}
+	return 3 + lipgloss.Width(email)
+}
+
+func compactEmailLabel(email string) string {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return ""
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return email
+	}
+	local := parts[0]
+	domain := parts[1]
+	if local == "" || domain == "" {
+		return email
+	}
+	if lipgloss.Width(email) <= 18 {
+		return email
+	}
+	domainParts := strings.Split(domain, ".")
+	domainBase := domain
+	tld := ""
+	if len(domainParts) >= 2 {
+		tld = domainParts[len(domainParts)-1]
+		domainBase = strings.Join(domainParts[:len(domainParts)-1], ".")
+	}
+	if lipgloss.Width(domainBase) > 7 {
+		domainBase = truncateString(domainBase, 7)
+	}
+	if tld != "" {
+		domain = domainBase + "." + tld
+	} else {
+		domain = domainBase
+	}
+	if lipgloss.Width(local) > 6 {
+		local = truncateString(local, 6)
+	}
+	return local + "@" + domain
+}
+
+func compactAgyUsageLabel(label string) string {
+	text := strings.ToLower(label)
+	prefix := strings.TrimSpace(label)
+	switch {
+	case strings.Contains(text, "gemini"):
+		prefix = "Gemini"
+	case strings.Contains(text, "claude") || strings.Contains(text, "gpt"):
+		prefix = "C+GPT"
+	}
+	switch {
+	case strings.Contains(text, "weekly") || strings.Contains(text, " wk"):
+		return prefix + " wk"
+	case strings.Contains(text, "5h") || strings.Contains(text, "session"):
+		return prefix + " 5h"
+	default:
+		if lipgloss.Width(prefix) > 8 {
+			return truncateString(prefix, 8)
+		}
+		return prefix
+	}
+}
+
+func truncateString(value string, maxWidth int) string {
+	if lipgloss.Width(value) <= maxWidth {
+		return value
+	}
+	var b strings.Builder
+	width := 0
+	for _, r := range value {
+		rw := lipgloss.Width(string(r))
+		if width+rw > maxWidth {
+			break
+		}
+		b.WriteRune(r)
+		width += rw
+	}
+	return b.String()
+}
+
+func padRight(value string, width int) string {
+	if pad := width - lipgloss.Width(value); pad > 0 {
+		return value + strings.Repeat(" ", pad)
+	}
+	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func shortUsageError(message string) string {

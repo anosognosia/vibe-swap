@@ -3,15 +3,19 @@ package usage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +29,7 @@ const (
 
 type AgyProfileUsage struct {
 	ProfileName string
+	Email       string
 	Plan        string
 	Windows     []NamedUsageWindow
 	Error       string
@@ -42,6 +47,9 @@ type AgyFetcher struct {
 	LoadCodeAssistURL       string
 	FetchAvailableModelsURL string
 	OAuthTokenURL           string
+	LocalEndpointURLs       []string
+	ActiveProfileName       string
+	UseLocalForActive       bool
 }
 
 type agyProfileFile struct {
@@ -126,9 +134,106 @@ type agyModelQuota struct {
 	ResetAt           time.Time
 }
 
+type agyProfileData struct {
+	Credentials *agyOAuthCredentials
+	ActiveEmail string
+}
+
+type agyLocalUsage struct {
+	Plan      string
+	Email     string
+	Windows   []NamedUsageWindow
+	UpdatedAt time.Time
+}
+
+type agyLocalQuotaSummaryResponse struct {
+	Code        agyCodeValue          `json:"code"`
+	Message     string                `json:"message"`
+	Response    *agyLocalQuotaSummary `json:"response"`
+	Summary     *agyLocalQuotaSummary `json:"summary"`
+	Description string                `json:"description"`
+	Groups      []agyLocalQuotaGroup  `json:"groups"`
+}
+
+type agyLocalQuotaSummary struct {
+	Description string               `json:"description"`
+	Groups      []agyLocalQuotaGroup `json:"groups"`
+}
+
+type agyLocalQuotaGroup struct {
+	DisplayName string                `json:"displayName"`
+	Description string                `json:"description"`
+	Buckets     []agyLocalQuotaBucket `json:"buckets"`
+}
+
+type agyLocalQuotaBucket struct {
+	BucketID          string                  `json:"bucketId"`
+	DisplayName       string                  `json:"displayName"`
+	Description       string                  `json:"description"`
+	Disabled          bool                    `json:"disabled"`
+	RemainingFraction *float64                `json:"remainingFraction"`
+	Remaining         *agyLocalQuotaRemaining `json:"remaining"`
+	ResetTime         string                  `json:"resetTime"`
+}
+
+type agyLocalQuotaRemaining struct {
+	RemainingFraction *float64 `json:"remainingFraction"`
+	Case              string   `json:"case"`
+	Value             *float64 `json:"value"`
+}
+
+type agyLocalUserStatusResponse struct {
+	Code       agyCodeValue `json:"code"`
+	Message    string       `json:"message"`
+	UserStatus *struct {
+		Email      string `json:"email"`
+		PlanStatus *struct {
+			PlanInfo *struct {
+				PlanName        string `json:"planName"`
+				PlanDisplayName string `json:"planDisplayName"`
+				DisplayName     string `json:"displayName"`
+				ProductName     string `json:"productName"`
+				PlanShortName   string `json:"planShortName"`
+			} `json:"planInfo"`
+		} `json:"planStatus"`
+		UserTier *struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"userTier"`
+	} `json:"userStatus"`
+}
+
+type agyCodeValue struct {
+	Value string
+	OK    bool
+	Set   bool
+}
+
+func (c *agyCodeValue) UnmarshalJSON(data []byte) error {
+	c.Set = true
+	var number int
+	if err := json.Unmarshal(data, &number); err == nil {
+		c.Value = strconv.Itoa(number)
+		c.OK = number == 0
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return err
+	}
+	c.Value = text
+	lower := strings.ToLower(strings.TrimSpace(text))
+	c.OK = lower == "ok" || lower == "success" || lower == "0"
+	return nil
+}
+
 func FetchAgyProfileUsages(ctx context.Context, profileNames []string) map[string]AgyProfileUsage {
 	fetcher := AgyFetcher{
 		Client: &http.Client{Timeout: 5 * time.Second},
+	}
+	if state, err := config.LoadActiveState(); err == nil {
+		fetcher.ActiveProfileName = state.Targets["agy"]
+		fetcher.UseLocalForActive = true
 	}
 	return fetcher.FetchProfiles(ctx, profileNames)
 }
@@ -146,11 +251,21 @@ func (f AgyFetcher) FetchProfile(ctx context.Context, profileName string) AgyPro
 		ProfileName: profileName,
 		UpdatedAt:   time.Now(),
 	}
-	credentials, err := ReadAgyProfileCredentials(profileName)
+	profile, err := ReadAgyProfileData(profileName)
 	if err != nil {
 		usage.Error = err.Error()
 		return usage
 	}
+	usage.Email = profile.ActiveEmail
+	if localUsage, ok := f.fetchMatchingLocalUsage(ctx, profileName, profile); ok {
+		usage.Email = localUsage.Email
+		usage.Plan = localUsage.Plan
+		usage.Windows = localUsage.Windows
+		usage.UpdatedAt = localUsage.UpdatedAt
+		return usage
+	}
+
+	credentials := profile.Credentials
 	if strings.TrimSpace(credentials.AccessToken) == "" {
 		usage.Error = "missing access token"
 		return usage
@@ -223,6 +338,176 @@ func (f AgyFetcher) FetchProfile(ctx context.Context, profileName string) AgyPro
 	return usage
 }
 
+func (f AgyFetcher) fetchMatchingLocalUsage(ctx context.Context, profileName string, profile agyProfileData) (agyLocalUsage, bool) {
+	localUsage, err := f.fetchLocalUsage(ctx)
+	if err != nil || len(localUsage.Windows) == 0 {
+		return agyLocalUsage{}, false
+	}
+	email := strings.ToLower(strings.TrimSpace(localUsage.Email))
+	if email == "" {
+		return agyLocalUsage{}, false
+	}
+	if strings.ToLower(strings.TrimSpace(profile.ActiveEmail)) == email {
+		return localUsage, true
+	}
+	if f.UseLocalForActive && strings.TrimSpace(profileName) != "" && profileName == f.ActiveProfileName {
+		return localUsage, true
+	}
+	return agyLocalUsage{}, false
+}
+
+func (f AgyFetcher) fetchLocalUsage(ctx context.Context) (agyLocalUsage, error) {
+	endpoints := f.LocalEndpointURLs
+	hasExplicitEndpoints := len(endpoints) > 0
+	if len(endpoints) == 0 {
+		endpoints = discoverAgyLocalEndpointURLs(ctx)
+	}
+	if len(endpoints) == 0 {
+		return agyLocalUsage{}, fmt.Errorf("agy local endpoint not found")
+	}
+	client := localAgyHTTPClient(f.Client, hasExplicitEndpoints)
+	var lastErr error
+	for _, endpoint := range endpoints {
+		quota, err := postAgyLocal[agyLocalQuotaSummaryResponse](ctx, client, strings.TrimRight(endpoint, "/")+"/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", map[string]any{
+			"forceRefresh": true,
+		})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		windows := agyWindowsFromLocalQuotaSummary(quota)
+		if len(windows) == 0 {
+			lastErr = fmt.Errorf("agy local quota summary had no usable buckets")
+			continue
+		}
+		identity, _ := postAgyLocal[agyLocalUserStatusResponse](ctx, client, strings.TrimRight(endpoint, "/")+"/exa.language_server_pb.LanguageServerService/GetUserStatus", map[string]any{
+			"metadata": map[string]any{
+				"ideName":       "antigravity",
+				"extensionName": "antigravity",
+				"ideVersion":    "unknown",
+				"locale":        "en",
+			},
+		})
+		return agyLocalUsage{
+			Plan:      agyLocalPlanName(identity),
+			Email:     agyLocalEmail(identity),
+			Windows:   windows,
+			UpdatedAt: time.Now(),
+		}, nil
+	}
+	return agyLocalUsage{}, lastErr
+}
+
+func localAgyHTTPClient(existing *http.Client, allowExisting bool) *http.Client {
+	if allowExisting && existing != nil {
+		return existing
+	}
+	return &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // localhost Antigravity uses a self-signed cert.
+		},
+	}
+}
+
+func postAgyLocal[T any](ctx context.Context, client *http.Client, endpoint string, body map[string]any) (T, error) {
+	var zero T
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return zero, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return zero, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Length", strconv.Itoa(len(payload)))
+	req.Header.Set("Connect-Protocol-Version", "1")
+	resp, err := client.Do(req)
+	if err != nil {
+		return zero, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return zero, fmt.Errorf("agy local usage request failed: %s: %s", resp.Status, strings.TrimSpace(string(message)))
+	}
+	var result T
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return zero, fmt.Errorf("decode agy local usage response: %v", err)
+	}
+	return result, nil
+}
+
+func discoverAgyLocalEndpointURLs(ctx context.Context) []string {
+	psOut, err := exec.CommandContext(ctx, "ps", "axo", "pid=,command=").Output()
+	if err != nil {
+		return nil
+	}
+	pids := agyProcessIDs(string(psOut))
+	urls := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, pid := range pids {
+		lsofOut, err := exec.CommandContext(ctx, "lsof", "-nP", "-p", strconv.Itoa(pid)).Output()
+		if err != nil {
+			continue
+		}
+		for _, port := range agyListeningPorts(string(lsofOut)) {
+			for _, scheme := range []string{"https", "http"} {
+				endpoint := fmt.Sprintf("%s://127.0.0.1:%d", scheme, port)
+				if seen[endpoint] {
+					continue
+				}
+				seen[endpoint] = true
+				urls = append(urls, endpoint)
+			}
+		}
+	}
+	return urls
+}
+
+func agyProcessIDs(psOutput string) []int {
+	pids := make([]int, 0)
+	for _, line := range strings.Split(psOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		command := strings.ToLower(strings.Join(fields[1:], " "))
+		if !strings.Contains(command, "agy") && !strings.Contains(command, "antigravity") {
+			continue
+		}
+		if strings.Contains(command, "rg -i") || strings.Contains(command, "lsof") {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func agyListeningPorts(lsofOutput string) []int {
+	portRe := regexp.MustCompile(`127\.0\.0\.1:(\d+)\s+\(LISTEN\)`)
+	seen := map[int]bool{}
+	var ports []int
+	for _, match := range portRe.FindAllStringSubmatch(lsofOutput, -1) {
+		port, err := strconv.Atoi(match[1])
+		if err != nil || seen[port] {
+			continue
+		}
+		seen[port] = true
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports
+}
+
 func (f AgyFetcher) refreshAccessToken(ctx context.Context, credentials *agyOAuthCredentials) error {
 	if strings.TrimSpace(credentials.RefreshToken) == "" {
 		return fmt.Errorf("missing refresh token")
@@ -273,32 +558,57 @@ func (f AgyFetcher) refreshAccessToken(ctx context.Context, credentials *agyOAut
 }
 
 func ReadAgyProfileCredentials(profileName string) (*agyOAuthCredentials, error) {
-	profilesDir, err := config.GetProfilesDir()
+	profile, err := ReadAgyProfileData(profileName)
 	if err != nil {
 		return nil, err
+	}
+	return profile.Credentials, nil
+}
+
+func ReadAgyProfileData(profileName string) (agyProfileData, error) {
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return agyProfileData{}, err
 	}
 	path := filepath.Join(profilesDir, "agy", profileName+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return agyProfileData{}, err
 	}
 	var profile agyProfileFile
 	if err := json.Unmarshal(data, &profile); err != nil {
-		return nil, fmt.Errorf("decode agy profile: %v", err)
+		return agyProfileData{}, fmt.Errorf("decode agy profile: %v", err)
 	}
 	raw := profile.Files["~/.gemini/oauth_creds.json"]
 	if raw == "" {
-		return nil, fmt.Errorf("missing ~/.gemini/oauth_creds.json in profile")
+		return agyProfileData{}, fmt.Errorf("missing ~/.gemini/oauth_creds.json in profile")
 	}
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("decode agy oauth credentials: %v", err)
+		return agyProfileData{}, fmt.Errorf("decode agy oauth credentials: %v", err)
 	}
 	var credentials agyOAuthCredentials
 	if err := json.Unmarshal(decoded, &credentials); err != nil {
-		return nil, fmt.Errorf("parse agy oauth credentials: %v", err)
+		return agyProfileData{}, fmt.Errorf("parse agy oauth credentials: %v", err)
 	}
-	return &credentials, nil
+	activeEmail := ""
+	for path, raw := range profile.Files {
+		if !strings.Contains(path, "google_accounts") {
+			continue
+		}
+		decodedAccounts, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			continue
+		}
+		if active := activeEmailFromAgyGoogleAccounts(decodedAccounts); active != "" {
+			activeEmail = active
+			break
+		}
+	}
+	return agyProfileData{
+		Credentials: &credentials,
+		ActiveEmail: activeEmail,
+	}, nil
 }
 
 func sendAgyRequest[T any](ctx context.Context, client *http.Client, url, accessToken string, body map[string]any) (T, error) {
@@ -472,6 +782,230 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func emailsFromText(value string) []string {
+	return regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`).FindAllString(value, -1)
+}
+
+func activeEmailFromAgyGoogleAccounts(data []byte) string {
+	var accounts struct {
+		Active any `json:"active"`
+	}
+	if err := json.Unmarshal(data, &accounts); err != nil {
+		return ""
+	}
+	return firstEmailFromAny(accounts.Active)
+}
+
+func firstEmailFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		emails := emailsFromText(typed)
+		if len(emails) > 0 {
+			return emails[0]
+		}
+	case map[string]any:
+		for _, key := range []string{"email", "account", "login", "user"} {
+			if email := firstEmailFromAny(typed[key]); email != "" {
+				return email
+			}
+		}
+		for _, nested := range typed {
+			if email := firstEmailFromAny(nested); email != "" {
+				return email
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if email := firstEmailFromAny(nested); email != "" {
+				return email
+			}
+		}
+	}
+	return ""
+}
+
+func agyWindowsFromLocalQuotaSummary(response agyLocalQuotaSummaryResponse) []NamedUsageWindow {
+	if response.Code.Set && !response.Code.OK {
+		return nil
+	}
+	summary := response.Response
+	if summary == nil {
+		summary = response.Summary
+	}
+	if summary == nil && len(response.Groups) > 0 {
+		summary = &agyLocalQuotaSummary{
+			Description: response.Description,
+			Groups:      response.Groups,
+		}
+	}
+	if summary == nil {
+		return nil
+	}
+	type bucketWindow struct {
+		groupLabel string
+		bucket     agyLocalQuotaBucket
+		remaining  float64
+	}
+	buckets := make([]bucketWindow, 0)
+	for _, group := range summary.Groups {
+		groupLabel := strings.TrimSpace(group.DisplayName)
+		if groupLabel == "" {
+			groupLabel = "Quota"
+		}
+		for _, bucket := range group.Buckets {
+			if bucket.Disabled {
+				continue
+			}
+			remaining, ok := agyLocalRemainingFraction(bucket)
+			if !ok {
+				continue
+			}
+			buckets = append(buckets, bucketWindow{
+				groupLabel: groupLabel,
+				bucket:     bucket,
+				remaining:  clampFloat(remaining, 0, 1),
+			})
+		}
+	}
+	sort.SliceStable(buckets, func(i, j int) bool {
+		leftRank := agyQuotaGroupRank(buckets[i].groupLabel)
+		rightRank := agyQuotaGroupRank(buckets[j].groupLabel)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		leftBucketRank := agyQuotaBucketRank(buckets[i].bucket)
+		rightBucketRank := agyQuotaBucketRank(buckets[j].bucket)
+		if leftBucketRank != rightBucketRank {
+			return leftBucketRank < rightBucketRank
+		}
+		return buckets[i].bucket.DisplayName < buckets[j].bucket.DisplayName
+	})
+	windows := make([]NamedUsageWindow, 0, len(buckets))
+	for _, bucket := range buckets {
+		windows = append(windows, NamedUsageWindow{
+			Label:       agyCompactWindowLabel(strings.TrimSpace(bucket.groupLabel + " " + agyLocalBucketTitle(bucket.bucket))),
+			UsedPercent: int((1-bucket.remaining)*100 + 0.5),
+			ResetAt:     parseAgyResetTime(bucket.bucket.ResetTime),
+		})
+	}
+	return windows
+}
+
+func agyLocalRemainingFraction(bucket agyLocalQuotaBucket) (float64, bool) {
+	if bucket.RemainingFraction != nil {
+		return *bucket.RemainingFraction, true
+	}
+	if bucket.Remaining == nil {
+		return 0, false
+	}
+	if bucket.Remaining.RemainingFraction != nil {
+		return *bucket.Remaining.RemainingFraction, true
+	}
+	if bucket.Remaining.Case == "remainingFraction" && bucket.Remaining.Value != nil {
+		return *bucket.Remaining.Value, true
+	}
+	return 0, false
+}
+
+func agyLocalBucketTitle(bucket agyLocalQuotaBucket) string {
+	switch agyQuotaBucketKind(bucket) {
+	case "session":
+		return "5h"
+	case "weekly":
+		return "weekly"
+	default:
+		if value := strings.TrimSpace(bucket.DisplayName); value != "" {
+			return value
+		}
+		return strings.TrimSpace(bucket.BucketID)
+	}
+}
+
+func agyCompactWindowLabel(label string) string {
+	text := strings.ToLower(label)
+	prefix := strings.TrimSpace(label)
+	switch {
+	case strings.Contains(text, "gemini"):
+		prefix = "Gemini"
+	case strings.Contains(text, "claude") || strings.Contains(text, "gpt"):
+		prefix = "C+GPT"
+	}
+	switch {
+	case strings.Contains(text, "weekly"):
+		return prefix + " wk"
+	case strings.Contains(text, "5h") || strings.Contains(text, "session"):
+		return prefix + " 5h"
+	default:
+		if compact := strings.TrimSpace(prefix); compact != "" {
+			return compact
+		}
+		return strings.TrimSpace(label)
+	}
+}
+
+func agyQuotaGroupRank(label string) int {
+	text := strings.ToLower(label)
+	switch {
+	case strings.Contains(text, "gemini"):
+		return 0
+	case strings.Contains(text, "claude") || strings.Contains(text, "gpt"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+func agyQuotaBucketRank(bucket agyLocalQuotaBucket) int {
+	switch agyQuotaBucketKind(bucket) {
+	case "session":
+		return 0
+	case "weekly":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func agyQuotaBucketKind(bucket agyLocalQuotaBucket) string {
+	text := strings.ToLower(bucket.BucketID + " " + bucket.DisplayName)
+	switch {
+	case strings.Contains(text, "5h") || strings.Contains(text, "5-hour") || strings.Contains(text, "five hour") || strings.Contains(text, "session"):
+		return "session"
+	case strings.Contains(text, "week"):
+		return "weekly"
+	default:
+		return "other"
+	}
+}
+
+func agyLocalEmail(response agyLocalUserStatusResponse) string {
+	if response.UserStatus == nil {
+		return ""
+	}
+	return strings.TrimSpace(response.UserStatus.Email)
+}
+
+func agyLocalPlanName(response agyLocalUserStatusResponse) string {
+	if response.UserStatus == nil {
+		return ""
+	}
+	if response.UserStatus.PlanStatus != nil && response.UserStatus.PlanStatus.PlanInfo != nil {
+		info := response.UserStatus.PlanStatus.PlanInfo
+		for _, value := range []string{info.PlanDisplayName, info.DisplayName, info.ProductName, info.PlanName, info.PlanShortName} {
+			if strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	if response.UserStatus.UserTier != nil {
+		if value := strings.TrimSpace(response.UserStatus.UserTier.Name); value != "" {
+			return value
+		}
+		return strings.TrimSpace(response.UserStatus.UserTier.ID)
+	}
+	return ""
 }
 
 func agyPlanName(response agyCodeAssistResponse) string {

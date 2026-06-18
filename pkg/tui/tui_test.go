@@ -3,15 +3,18 @@ package tui
 import (
 	"fmt"
 	"github.com/anosognosia/vibe-swap/pkg/config"
+	"github.com/anosognosia/vibe-swap/pkg/engine"
 	"github.com/anosognosia/vibe-swap/pkg/usage"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestTUIFocusFlow(t *testing.T) {
@@ -291,6 +294,11 @@ func TestTUIRendersCodexProfileRowsWithProgressBars(t *testing.T) {
 		profiles: map[string][]string{
 			"codex": {"work"},
 		},
+		profileMetadata: map[string]map[string]engine.ProfileMetadata{
+			"codex": {
+				"work": {Email: "person@gmail.com"},
+			},
+		},
 		codexUsage: map[string]usage.CodexProfileUsage{
 			"work": {
 				Session: usage.UsageWindow{UsedPercent: 42, ResetAt: time.Now().Add(4*time.Hour + 30*time.Minute)},
@@ -310,7 +318,7 @@ func TestTUIRendersCodexProfileRowsWithProgressBars(t *testing.T) {
 	}
 
 	row := m.renderCodexProfileRow("work", "  ", true, false)
-	for _, want := range []string{"work", "5h", "42% used", "resets in", "weekly", "18% used", "━", "─"} {
+	for _, want := range []string{"work", "person@gmail.com", "5h", "42% used", "resets in", "weekly", "18% used", "━", "─"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("usage row missing %q:\n%s", want, row)
 		}
@@ -327,6 +335,7 @@ func TestTUIRendersAgyProfileRowsWithProgressBars(t *testing.T) {
 		},
 		agyUsage: map[string]usage.AgyProfileUsage{
 			"wtd": {
+				Email: "edgar@williamthomasdigital.com",
 				Windows: []usage.NamedUsageWindow{
 					{Label: "Gemini", UsedPercent: 42, ResetAt: time.Now().Add(4*time.Hour + 30*time.Minute)},
 					{Label: "Claude+GPT", UsedPercent: 18, ResetAt: time.Now().Add(6*24*time.Hour + 2*time.Hour)},
@@ -338,9 +347,184 @@ func TestTUIRendersAgyProfileRowsWithProgressBars(t *testing.T) {
 	}
 
 	row := m.renderAgyProfileRow("wtd", "  ", true, false)
-	for _, want := range []string{"wtd", "Gemini", "42% used", "Claude+GPT", "18% used", "resets in", "━", "─"} {
+	for _, want := range []string{"wtd", "edgar@william", "Gemini", "42% used", "C+GPT", "18% used", "resets in", "━", "─"} {
 		if !strings.Contains(row, want) {
 			t.Fatalf("agy usage row missing %q:\n%s", want, row)
+		}
+	}
+}
+
+func TestTUIRendersBasicProfileEmail(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"claude_cli": {"personal"},
+		},
+		profileMetadata: map[string]map[string]engine.ProfileMetadata{
+			"claude_cli": {
+				"personal": {Email: "person@gmail.com"},
+			},
+		},
+	}
+
+	row := m.renderBasicProfileRow("claude_cli", "personal", "  ", false, false)
+	for _, want := range []string{"personal", "person@gmail.com"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("basic profile row missing %q:\n%s", want, row)
+		}
+	}
+}
+
+func TestTUIRendersClaudeProfileRowsWithUsage(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"claude_cli": {"personal"},
+		},
+		profileMetadata: map[string]map[string]engine.ProfileMetadata{
+			"claude_cli": {
+				"personal": {Email: "person@gmail.com"},
+			},
+		},
+		claudeUsage: map[string]usage.ClaudeProfileUsage{
+			"personal": {
+				Windows: []usage.NamedUsageWindow{
+					{Label: "5h", UsedPercent: 12},
+					{Label: "weekly", UsedPercent: 34},
+				},
+			},
+		},
+		claudeUsageLoaded: true,
+		mainPanelWidth:    90,
+	}
+
+	row := m.renderClaudeProfileRow("claude_cli", "personal", "  ", false, false)
+	for _, want := range []string{"personal", "person@gmail.com", "5h", "12% used", "weekly", "34% used", "━", "─"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("claude usage row missing %q:\n%s", want, row)
+		}
+	}
+}
+
+func TestTUIUsagePercentColumnsAlign(t *testing.T) {
+	m := model{mainPanelWidth: 110}
+	row := stripANSITest(m.renderAgyUsageLine("  work      ", 10, usage.AgyProfileUsage{
+		Windows: []usage.NamedUsageWindow{
+			{Label: "Gemini weekly", UsedPercent: 0},
+			{Label: "extra", UsedPercent: 79},
+			{Label: "Claude+GPT weekly", UsedPercent: 100},
+		},
+	}))
+	var percentColumn int
+	found := 0
+	for _, line := range strings.Split(row, "\n") {
+		if !strings.Contains(line, "% used") {
+			continue
+		}
+		found++
+		col := strings.Index(line, "% used")
+		if percentColumn == 0 {
+			percentColumn = col
+			continue
+		}
+		if col != percentColumn {
+			t.Fatalf("expected percent columns to align at %d, got %d:\n%s", percentColumn, col, row)
+		}
+	}
+	if found != 3 {
+		t.Fatalf("expected 3 usage lines, got %d:\n%s", found, row)
+	}
+}
+
+func TestTUIClaudeDesktopEmailFallsBackToCLIProfile(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"claude_desktop_oauth": {"personal"},
+			"claude_cli":           {"personal"},
+		},
+		profileMetadata: map[string]map[string]engine.ProfileMetadata{
+			"claude_desktop_oauth": {
+				"personal": {},
+			},
+			"claude_cli": {
+				"personal": {Email: "person@gmail.com"},
+			},
+		},
+	}
+
+	row := m.renderBasicProfileRow("claude_desktop_oauth", "personal", "  ", false, false)
+	if !strings.Contains(row, "person@gmail.com") {
+		t.Fatalf("expected desktop row to use CLI email fallback:\n%s", row)
+	}
+}
+
+func stripANSITest(value string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`).ReplaceAllString(value, "")
+}
+
+func TestTUIProfileLabelWidthIncludesLongestEmailForTarget(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"codex": {"wtd", "personal"},
+		},
+		profileMetadata: map[string]map[string]engine.ProfileMetadata{
+			"codex": {
+				"wtd":      {Email: "edgar@williamthomasdigital.com"},
+				"personal": {Email: "person@gmail.com"},
+			},
+		},
+	}
+
+	width := m.profileLabelWidth("codex")
+	wtd := profileEmailLabel(m.profileEmail("codex", "wtd"), width)
+	personal := profileEmailLabel(m.profileEmail("codex", "personal"), width)
+	if lipgloss.Width(wtd) != lipgloss.Width(personal) {
+		t.Fatalf("expected normalized email widths, got %d and %d", lipgloss.Width(wtd), lipgloss.Width(personal))
+	}
+}
+
+func TestTUIRendersAgyEmailForSingleUsageWindow(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"agy": {"personal"},
+		},
+		agyUsage: map[string]usage.AgyProfileUsage{
+			"personal": {
+				Email: "person@gmail.com",
+				Windows: []usage.NamedUsageWindow{
+					{Label: "Gemini", UsedPercent: 42, ResetAt: time.Now().Add(4 * time.Hour)},
+				},
+			},
+		},
+		agyUsageLoaded: true,
+		mainPanelWidth: 90,
+	}
+
+	row := m.renderAgyProfileRow("personal", "  ", false, false)
+	for _, want := range []string{"personal", "person@gmail.com", "Gemini", "42% used"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("agy single-window row missing %q:\n%s", want, row)
+		}
+	}
+}
+
+func TestTUIRendersAgyEmailForUsageError(t *testing.T) {
+	m := model{
+		profiles: map[string][]string{
+			"agy": {"personal"},
+		},
+		agyUsage: map[string]usage.AgyProfileUsage{
+			"personal": {
+				Email: "person@gmail.com",
+				Error: "access token expired",
+			},
+		},
+		agyUsageLoaded: true,
+		mainPanelWidth: 90,
+	}
+
+	row := m.renderAgyProfileRow("personal", "  ", false, false)
+	for _, want := range []string{"personal", "person@gmail.com", "token expired"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("agy error row missing %q:\n%s", want, row)
 		}
 	}
 }
@@ -399,7 +583,7 @@ func TestTUIUsagePercentCountsWithAnimation(t *testing.T) {
 	line := m.renderCodexUsageLine("  work      ", 10, "work", usage.CodexProfileUsage{
 		Session: usage.UsageWindow{UsedPercent: 42, ResetAt: time.Now().Add(4 * time.Hour)},
 		Weekly:  usage.UsageWindow{UsedPercent: 18, ResetAt: time.Now().Add(2 * time.Hour)},
-	})
+	}, "")
 	if !strings.Contains(line, " 12% used") || !strings.Contains(line, "  6% used") {
 		t.Fatalf("expected rendered percentages to follow eased values, got:\n%s", line)
 	}

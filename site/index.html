@@ -133,9 +133,11 @@
             delete, or apply matching profile names across tools.
           </p>
           <p>
-            Codex and agy profiles show read-only quota usage inline, including
-            percentages used plus reset countdowns. VibeSwap reads saved access
-            tokens as-is and leaves token refresh to the underlying tools.
+            Codex, Claude, and agy profiles show read-only quota usage inline,
+            including percentages used plus reset countdowns where the upstream
+            API provides them. VibeSwap reads saved credentials and browser
+            session cookies as-is and leaves token refresh to the underlying
+            tools.
           </p>
         </div>
         <div class="tui-preview" aria-label="Profile usage row examples">
@@ -147,9 +149,14 @@
   work       5h        42% used ━━━━━━━━━━━━━────────  resets in 4h 30m
              weekly    18% used ━━━━━────────────────  resets in 6d 2h
 
+Claude
+  wtd        5h         0% used ─────────────────────  resets in 2h 12m
+             weekly     0% used ─────────────────────  resets in 5d 23h
+             extra     79% used ━━━━━━━━━━━━━━━──────
+
 agy
 › wtd        Gemini    42% used ━━━━━━━━━━━━━────────  resets in 4h 30m
-             Claude+GPT 18% used ━━━━━───────────────  resets in 6d 2h</code></pre>
+             C+GPT wk  18% used ━━━━━───────────────  resets in 6d 2h</code></pre>
         </div>
       </section>
 
