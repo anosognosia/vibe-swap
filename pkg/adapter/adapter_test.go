@@ -472,6 +472,70 @@ func TestWrappedDirAdapter(t *testing.T) {
 	}
 }
 
+func TestWrappedDirAdapterClaudeCLISharedTranscriptsSurviveProfileSwitch(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", oldHome)
+	os.Setenv("HOME", tmpDir)
+
+	wa := &WrappedDirAdapter{}
+	profilesDir, _ := config.GetProfilesDir()
+	personal := filepath.Join(profilesDir, "claude_cli", "personal")
+	work := filepath.Join(profilesDir, "claude_cli", "work")
+
+	personalTranscript := filepath.Join(personal, "projects", "-repo", "personal.jsonl")
+	if err := os.MkdirAll(filepath.Dir(personalTranscript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personal, ".claude.json"), []byte("personal-auth"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(personalTranscript, []byte("personal transcript"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := wa.normalizeSharedState("claude_cli", personal); err != nil {
+		t.Fatalf("normalize personal: %v", err)
+	}
+
+	workTranscript := filepath.Join(work, "projects", "-repo", "work.jsonl")
+	if err := os.MkdirAll(filepath.Dir(workTranscript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".claude.json"), []byte("work-auth"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(workTranscript, []byte("work transcript"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := wa.normalizeSharedState("claude_cli", work); err != nil {
+		t.Fatalf("normalize work: %v", err)
+	}
+
+	for _, profile := range []string{personal, work} {
+		for _, rel := range []string{
+			filepath.Join("projects", "-repo", "personal.jsonl"),
+			filepath.Join("projects", "-repo", "work.jsonl"),
+		} {
+			if _, err := os.Stat(filepath.Join(profile, rel)); err != nil {
+				t.Fatalf("expected shared transcript %s through profile %s: %v", rel, filepath.Base(profile), err)
+			}
+		}
+	}
+	if got, err := os.ReadFile(filepath.Join(personal, ".claude.json")); err != nil || string(got) != "personal-auth" {
+		t.Fatalf("expected personal auth/config to remain profile-scoped, got %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(work, ".claude.json")); err != nil || string(got) != "work-auth" {
+		t.Fatalf("expected work auth/config to remain profile-scoped, got %q err=%v", got, err)
+	}
+
+	for _, profile := range []string{"personal", "work"} {
+		link := filepath.Join(profilesDir, "claude_cli", profile, "projects")
+		if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("expected %s projects to be a shared-state symlink, info=%v err=%v", profile, info, err)
+		}
+	}
+}
+
 func TestSyncDirSkipsUnchangedAndRemovesStaleFiles(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "vibeswap-sync-test-*")
 	if err != nil {

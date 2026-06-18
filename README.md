@@ -33,7 +33,7 @@ The `claude_desktop_oauth` target (type `electron_userdata`) lets you sign in to
 
 ### How it works
 
-Claude Desktop stores its auth state across multiple Electron/Chromium files in `~/Library/Application Support/Claude/`: `config.json`, `Cookies`, `Local Storage/`, `IndexedDB/`, `Session Storage/`, `Network/`, and related browser-state files. Claude Code Desktop session metadata also lives under `claude-code-sessions/` and `local-agent-mode-sessions/`. VibeSwap snapshots those auth/session items with APFS copy-on-write clones, while leaving shared heavyweight app data such as `vm_bundles/`, caches, logs, and `claude_desktop_config.json` in the live directory.
+Claude Desktop stores its auth state across multiple Electron/Chromium files in `~/Library/Application Support/Claude/`: `config.json`, `Cookies`, `Local Storage/`, `IndexedDB/`, `Session Storage/`, `Network/`, and related browser-state files. Claude Code Desktop session metadata lives under `claude-code-sessions/` and `local-agent-mode-sessions/`, and Claude Code transcripts live under `~/.claude/projects/**/*.jsonl`. VibeSwap treats those transcript/session-history paths as shared user data, not account credentials, so account switching does not clear or swap them.
 
 The layout under `~/.config/vibeswap/profiles/claude_desktop_oauth/`:
 
@@ -46,17 +46,11 @@ live/         ← mutable full userData directory; Claude writes here
 The symlink at `~/Library/Application Support/Claude` always points at `live/`. Snapshots are never written to after Save returns, and switching copies only saved auth/session items into `live/`.
 
 Before Claude Desktop OAuth or Claude Code profile operations mutate live state,
-VibeSwap creates a timestamped safety snapshot under
-`~/.config/vibeswap/safety-backups/claude/`. These snapshots include the coupled
-state needed to recover local Claude Code sessions: the current `~/.claude`
-tree, including `projects/**/*.jsonl` transcripts, plus Claude Desktop's
-critical auth/session stores such as `IndexedDB/`, `Local Storage/`,
-`Session Storage/`, `claude-code-sessions/`, and
-`local-agent-mode-sessions/`. You can also create one manually at any time:
-
-```bash
-vibeswap backup claude
-```
+VibeSwap also creates an internal timestamped safety snapshot under
+`~/.config/vibeswap/safety-backups/claude/`. This is a recovery guardrail, not
+normal user workflow; the primary protection is that local Claude transcripts
+and Desktop code-session metadata are left in shared state instead of being
+owned by individual account profiles.
 
 Do not use Claude Desktop's in-app logout to set up another saved account. That can revoke the saved server-side session and make an old profile briefly load before Claude signs it out. Use `vibeswap new-login claude_desktop_oauth` instead; it clears local auth/browser session files without asking Claude's servers to invalidate the current token. Local Claude Code Desktop transcript folders are preserved by `new-login`.
 
@@ -370,7 +364,7 @@ countdowns, and does not refresh or mutate saved credentials.
     ```bash
     vibeswap backup claude
     ```
-    This snapshots local Claude Code transcripts and Claude Desktop session metadata before you experiment with account switching or app updates.
+    This is mainly a troubleshooting/recovery command. Normal account switching should not require users to manage backups.
 *   **Global switch all targets to a profile**:
     ```bash
     vibeswap profile <profile_name>

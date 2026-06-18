@@ -15,6 +15,14 @@ import (
 
 type WrappedDirAdapter struct{}
 
+var claudeCLISharedStateDirs = []string{
+	"projects",
+	"session-env",
+	"sessions",
+	"tasks",
+	"shell-snapshots",
+}
+
 func (w *WrappedDirAdapter) getProfilePath(targetID, profileName string) (string, error) {
 	profilesDir, err := config.GetProfilesDir()
 	if err != nil {
@@ -80,6 +88,9 @@ func (w *WrappedDirAdapter) Save(target config.Target, targetID string, profileN
 	if err := w.saveKeychain(target, targetID, destDir); err != nil {
 		return err
 	}
+	if err := w.normalizeSharedState(targetID, destDir); err != nil {
+		return err
+	}
 
 	// Create VibeSwap initialization marker so we know the user is active and we shouldn't auto-migrate later
 	configDir, err := config.GetConfigDir()
@@ -119,6 +130,7 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 				if _, backupStatErr := os.Stat(backupPath); os.IsNotExist(backupStatErr) {
 					_ = os.MkdirAll(backupPath, 0700)
 					_ = copyDir(defaultDir, backupPath)
+					_ = w.normalizeSharedState(targetID, backupPath)
 					_ = w.saveKeychain(target, targetID, backupPath)
 				}
 				// Create the initialization marker
@@ -151,8 +163,63 @@ func (w *WrappedDirAdapter) Load(target config.Target, targetID string, profileN
 	if err := w.loadKeychain(target, targetID, profilePath); err != nil {
 		return err
 	}
+	if err := w.normalizeSharedState(targetID, profilePath); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func (w *WrappedDirAdapter) normalizeSharedState(targetID, profilePath string) error {
+	if targetID != "claude_cli" {
+		return nil
+	}
+	profilesDir, err := config.GetProfilesDir()
+	if err != nil {
+		return err
+	}
+	sharedRoot := filepath.Join(profilesDir, targetID, ".shared")
+	if err := os.MkdirAll(sharedRoot, 0700); err != nil {
+		return err
+	}
+	for _, name := range claudeCLISharedStateDirs {
+		profileState := filepath.Join(profilePath, name)
+		sharedState := filepath.Join(sharedRoot, name)
+		if err := os.MkdirAll(sharedState, 0700); err != nil {
+			return err
+		}
+		if err := mergeIntoSharedState(profileState, sharedState); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(profileState); err != nil {
+			return err
+		}
+		if err := os.Symlink(sharedState, profileState); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mergeIntoSharedState(src, dst string) error {
+	resolvedSrc := src
+	if resolved, err := filepath.EvalSymlinks(src); err == nil {
+		if same, _ := sameFilePath(resolved, dst); same {
+			return nil
+		}
+		resolvedSrc = resolved
+	}
+	info, err := os.Stat(resolvedSrc)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	return copyMissingDir(resolvedSrc, dst)
 }
 
 func (w *WrappedDirAdapter) saveKeychain(target config.Target, targetID string, destDir string) error {
@@ -321,6 +388,59 @@ func (w *WrappedDirAdapter) IsInstalled(target config.Target) bool {
 // copyDir recursively copies a directory tree, attempting to preserve permissions.
 func copyDir(src string, dst string) error {
 	return syncDir(src, dst)
+}
+
+func copyMissingDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(dst, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(targetPath, info.Mode())
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if _, err := os.Lstat(targetPath); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, targetPath)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if _, err := os.Stat(targetPath); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		return copyFileIfChanged(path, targetPath, info)
+	})
+}
+
+func sameFilePath(a, b string) (bool, error) {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+	bInfo, err := os.Stat(b)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(aInfo, bInfo), nil
 }
 
 func syncDir(src string, dst string) error {

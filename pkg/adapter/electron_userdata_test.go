@@ -155,8 +155,6 @@ func TestElectronUserdataAdapter_SaveSnapshotsOnlySessionState(t *testing.T) {
 		"config.json",
 		"Cookies",
 		filepath.Join("Local Storage", "leveldb", "000001.log"),
-		filepath.Join("claude-code-sessions", "project", "session", "local_123.json"),
-		filepath.Join("local-agent-mode-sessions", "project", "env.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(snapshot, rel)); err != nil {
 			t.Fatalf("expected session item %s in snapshot: %v", rel, err)
@@ -166,6 +164,8 @@ func TestElectronUserdataAdapter_SaveSnapshotsOnlySessionState(t *testing.T) {
 		"claude_desktop_config.json",
 		filepath.Join("vm_bundles", "vm.img"),
 		filepath.Join("Cache", "runtime.cache"),
+		filepath.Join("claude-code-sessions", "project", "session", "local_123.json"),
+		filepath.Join("local-agent-mode-sessions", "project", "env.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(snapshot, rel)); !os.IsNotExist(err) {
 			t.Fatalf("expected shared/heavy item %s to stay out of snapshot, got %v", rel, err)
@@ -209,6 +209,42 @@ func TestElectronUserdataAdapter_LoadOldSnapshotPreservesLiveClaudeCodeSessions(
 	}
 	if got, err := os.ReadFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json")); err != nil || string(got) != "agent session" {
 		t.Fatalf("expected live local agent session to survive old snapshot load, data=%q err=%v", got, err)
+	}
+}
+
+func TestElectronUserdataAdapter_LoadNewSnapshotPreservesLiveClaudeCodeSessions(t *testing.T) {
+	withTempHome(t)
+	tmp := t.TempDir()
+	live := filepath.Join(tmp, "Live")
+	_ = os.MkdirAll(filepath.Join(live, "claude-code-sessions", "project", "session"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "local-agent-mode-sessions", "project"), 0755)
+	_ = os.WriteFile(filepath.Join(live, "config.json"), []byte("personal"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json"), []byte("desktop session"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json"), []byte("agent session"), 0644)
+
+	target := newUserdataTarget(live)
+	targetID := "mock"
+	adp := &ElectronUserdataAdapter{}
+	if err := adp.Save(target, targetID, "personal"); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = os.WriteFile(filepath.Join(live, "config.json"), []byte("work"), 0644)
+	if err := adp.Save(target, targetID, "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := adp.Load(target, targetID, "personal"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(live, "config.json")); string(got) != "personal" {
+		t.Fatalf("expected auth/session config from snapshot, got %q", got)
+	}
+	if got, err := os.ReadFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json")); err != nil || string(got) != "desktop session" {
+		t.Fatalf("expected live Claude Code Desktop session to survive new snapshot load, data=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json")); err != nil || string(got) != "agent session" {
+		t.Fatalf("expected live local agent session to survive new snapshot load, data=%q err=%v", got, err)
 	}
 }
 

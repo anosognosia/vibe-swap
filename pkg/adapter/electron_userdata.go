@@ -71,11 +71,6 @@ var electronUserdataSessionDirs = []string{
 	"WebStorage",
 }
 
-var electronUserdataSnapshotStateDirs = []string{
-	"claude-code-sessions",
-	"local-agent-mode-sessions",
-}
-
 // ResolveSymlinkTarget returns the absolute path of the live userData
 // symlink. This is the only required field on the target config.
 func (e *ElectronUserdataAdapter) ResolveSymlinkTarget(target config.Target) (string, error) {
@@ -492,15 +487,6 @@ func cloneElectronSessionItems(srcRoot, dstRoot string) (int, error) {
 			copied++
 		}
 	}
-	for _, name := range electronUserdataSnapshotStateDirs {
-		ok, err := cloneElectronSessionItem(filepath.Join(srcRoot, name), filepath.Join(dstRoot, name))
-		if err != nil {
-			return copied, err
-		}
-		if ok {
-			copied++
-		}
-	}
 	return copied, nil
 }
 
@@ -551,21 +537,8 @@ func clearElectronSessionItems(root string) error {
 	return nil
 }
 
-func clearElectronSessionItemsForLoad(root, snapshotRoot string) error {
-	if err := clearElectronSessionItems(root); err != nil {
-		return err
-	}
-	for _, name := range electronUserdataSnapshotStateDirs {
-		if _, err := os.Stat(filepath.Join(snapshotRoot, name)); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
-			return err
-		}
-	}
-	return nil
+func clearElectronSessionItemsForLoad(root, _ string) error {
+	return clearElectronSessionItems(root)
 }
 
 // sqliteOutput runs `sqlite3 -batch dbPath sql` and returns stdout. Returns
