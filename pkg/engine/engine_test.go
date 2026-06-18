@@ -720,3 +720,66 @@ func TestClearTargetSessionClearsDesktopOAuthActiveStateOnly(t *testing.T) {
 		t.Fatalf("expected unrelated companion active state to remain, got %#v", state.Targets)
 	}
 }
+
+func TestClearTargetSessionCreatesClaudeSafetyBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	claudeDir := filepath.Join(tmpDir, ".claude")
+	cliTranscript := filepath.Join(claudeDir, "projects", "-Users-edgar-project", "session-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(cliTranscript), 0755); err != nil {
+		t.Fatalf("failed to create claude project dir: %v", err)
+	}
+	if err := os.WriteFile(cliTranscript, []byte(`{"type":"message"}`), 0600); err != nil {
+		t.Fatalf("failed to seed cli transcript: %v", err)
+	}
+
+	desktopPath := filepath.Join(tmpDir, "Library", "Application Support", "Claude")
+	desktopSession := filepath.Join(desktopPath, "claude-code-sessions", "project", "session", "local_123.json")
+	if err := os.MkdirAll(filepath.Dir(desktopSession), 0755); err != nil {
+		t.Fatalf("failed to create desktop session dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(desktopPath, "config.json"), []byte("token"), 0600); err != nil {
+		t.Fatalf("failed to seed desktop config: %v", err)
+	}
+	if err := os.WriteFile(desktopSession, []byte(`{"cliSessionId":"session-1"}`), 0600); err != nil {
+		t.Fatalf("failed to seed desktop session: %v", err)
+	}
+
+	cfg := &config.Config{Targets: map[string]config.Target{
+		"claude_desktop_oauth": {
+			Name:          "Claude Desktop OAuth",
+			Type:          config.TypeElectronUserdata,
+			SymlinkTarget: desktopPath,
+		},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	if err := ClearTargetSession("claude_desktop_oauth"); err != nil {
+		t.Fatalf("failed to clear session: %v", err)
+	}
+
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		t.Fatalf("failed to get config dir: %v", err)
+	}
+	backups, err := filepath.Glob(filepath.Join(configDir, "safety-backups", "claude", "*"))
+	if err != nil {
+		t.Fatalf("failed to glob safety backups: %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("expected one Claude safety backup, got %d: %#v", len(backups), backups)
+	}
+
+	if got, err := os.ReadFile(filepath.Join(backups[0], "claude_cli", "projects", "-Users-edgar-project", "session-1.jsonl")); err != nil || string(got) != `{"type":"message"}` {
+		t.Fatalf("expected safety backup to include Claude CLI transcript, got %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(backups[0], "claude_desktop", "claude-code-sessions", "project", "session", "local_123.json")); err != nil || string(got) != `{"cliSessionId":"session-1"}` {
+		t.Fatalf("expected safety backup to include Claude Desktop session metadata, got %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(desktopPath, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected clear-session to remove live desktop config after backing it up, got %v", err)
+	}
+}

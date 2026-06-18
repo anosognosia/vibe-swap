@@ -119,6 +119,13 @@ func SaveProfile(targetID, profileName string) error {
 		return fmt.Errorf("target %s is not installed or initialized on your system", targetID)
 	}
 
+	if err := ensureDesktopAppNotRunning(target, adp, "save"); err != nil {
+		return err
+	}
+	if err := ensureClaudeSafetyBackup(targetID, "save"); err != nil {
+		return err
+	}
+
 	if err := adp.Save(target, targetID, profileName); err != nil {
 		return err
 	}
@@ -239,6 +246,9 @@ func SwitchProfile(targetID, profileName string) error {
 			return err
 		}
 	}
+	if err := ensureClaudeSafetyBackup(targetID, "switch"); err != nil {
+		return err
+	}
 
 	companions, err := switchCompanionProfiles(cfg, targetID, profileName)
 	if err != nil {
@@ -285,6 +295,12 @@ func ClearTargetSession(targetID string) error {
 	}
 	if !adp.IsInstalled(target) {
 		return fmt.Errorf("target %s is not installed or initialized on your system", targetID)
+	}
+	if err := ensureDesktopAppNotRunning(target, adp, "clear session"); err != nil {
+		return err
+	}
+	if err := ensureClaudeSafetyBackup(targetID, "new-login"); err != nil {
+		return err
 	}
 	if err := resetter.ClearSession(target, targetID); err != nil {
 		return err
@@ -422,6 +438,11 @@ func SwitchAllTargets(profileName string) error {
 
 	for _, candidate := range candidates {
 		if err := ensureDesktopAppNotRunning(candidate.target, candidate.adp, "switch"); err != nil {
+			return err
+		}
+	}
+	for _, candidate := range candidates {
+		if err := ensureClaudeSafetyBackup(candidate.targetID, "profile switch"); err != nil {
 			return err
 		}
 	}

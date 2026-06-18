@@ -312,7 +312,27 @@ revoking the saved profile's server-side session.`,
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, newLoginCmd, profileCmd, deleteCmd, renameCmd, activePathCmd, shellInstallCmd, shellUninstallCmd, newUpdateCmd())
+	var backupCmd = &cobra.Command{
+		Use:   "backup [claude]",
+		Short: "Create a local safety backup for high-risk app state",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			switch args[0] {
+			case "claude":
+				path, err := engine.CreateClaudeSafetyBackup("manual backup")
+				if err != nil {
+					fmt.Printf("%s Failed to create Claude safety backup: %v\n", red.Render("✖"), err)
+					os.Exit(1)
+				}
+				fmt.Printf("%s Created Claude safety backup at %s\n", green.Render("✔"), path)
+			default:
+				fmt.Printf("%s Unsupported backup target %q\n", red.Render("✖"), args[0])
+				os.Exit(1)
+			}
+		},
+	}
+
+	rootCmd.AddCommand(listCmd, saveCmd, switchCmd, newLoginCmd, profileCmd, deleteCmd, renameCmd, backupCmd, activePathCmd, shellInstallCmd, shellUninstallCmd, newUpdateCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
