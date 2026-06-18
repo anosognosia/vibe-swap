@@ -33,7 +33,7 @@ The `claude_desktop_oauth` target (type `electron_userdata`) lets you sign in to
 
 ### How it works
 
-Claude Desktop stores its auth state across multiple Electron/Chromium files in `~/Library/Application Support/Claude/`: `config.json`, `Cookies`, `Local Storage/`, `IndexedDB/`, `Session Storage/`, `Network/`, and related browser-state files. VibeSwap snapshots those auth/session items with APFS copy-on-write clones, while leaving shared heavyweight app data such as `vm_bundles/`, caches, logs, and `claude_desktop_config.json` in the live directory.
+Claude Desktop stores its auth state across multiple Electron/Chromium files in `~/Library/Application Support/Claude/`: `config.json`, `Cookies`, `Local Storage/`, `IndexedDB/`, `Session Storage/`, `Network/`, and related browser-state files. Claude Code Desktop session metadata also lives under `claude-code-sessions/` and `local-agent-mode-sessions/`. VibeSwap snapshots those auth/session items with APFS copy-on-write clones, while leaving shared heavyweight app data such as `vm_bundles/`, caches, logs, and `claude_desktop_config.json` in the live directory.
 
 The layout under `~/.config/vibeswap/profiles/claude_desktop_oauth/`:
 
@@ -45,7 +45,7 @@ live/         ← mutable full userData directory; Claude writes here
 
 The symlink at `~/Library/Application Support/Claude` always points at `live/`. Snapshots are never written to after Save returns, and switching copies only saved auth/session items into `live/`.
 
-Do not use Claude Desktop's in-app logout to set up another saved account. That can revoke the saved server-side session and make an old profile briefly load before Claude signs it out. Use `vibeswap new-login claude_desktop_oauth` instead; it clears local session files without asking Claude's servers to invalidate the current token.
+Do not use Claude Desktop's in-app logout to set up another saved account. That can revoke the saved server-side session and make an old profile briefly load before Claude signs it out. Use `vibeswap new-login claude_desktop_oauth` instead; it clears local auth/browser session files without asking Claude's servers to invalidate the current token. Local Claude Code Desktop transcript folders are preserved by `new-login`.
 
 ### Recommended workflow for two accounts
 

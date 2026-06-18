@@ -131,11 +131,15 @@ func TestElectronUserdataAdapter_SaveSnapshotsOnlySessionState(t *testing.T) {
 	tmp := t.TempDir()
 	live := filepath.Join(tmp, "Live")
 	_ = os.MkdirAll(filepath.Join(live, "Local Storage", "leveldb"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "claude-code-sessions", "project", "session"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "local-agent-mode-sessions", "project"), 0755)
 	_ = os.MkdirAll(filepath.Join(live, "vm_bundles"), 0755)
 	_ = os.MkdirAll(filepath.Join(live, "Cache"), 0755)
 	_ = os.WriteFile(filepath.Join(live, "config.json"), []byte("token"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "Cookies"), []byte("cookies"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "Local Storage", "leveldb", "000001.log"), []byte("local"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json"), []byte("desktop session"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json"), []byte("agent session"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "claude_desktop_config.json"), []byte("mcp"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "vm_bundles", "vm.img"), []byte("heavy"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "Cache", "runtime.cache"), []byte("cache"), 0644)
@@ -151,6 +155,8 @@ func TestElectronUserdataAdapter_SaveSnapshotsOnlySessionState(t *testing.T) {
 		"config.json",
 		"Cookies",
 		filepath.Join("Local Storage", "leveldb", "000001.log"),
+		filepath.Join("claude-code-sessions", "project", "session", "local_123.json"),
+		filepath.Join("local-agent-mode-sessions", "project", "env.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(snapshot, rel)); err != nil {
 			t.Fatalf("expected session item %s in snapshot: %v", rel, err)
@@ -164,6 +170,45 @@ func TestElectronUserdataAdapter_SaveSnapshotsOnlySessionState(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(snapshot, rel)); !os.IsNotExist(err) {
 			t.Fatalf("expected shared/heavy item %s to stay out of snapshot, got %v", rel, err)
 		}
+	}
+}
+
+func TestElectronUserdataAdapter_LoadOldSnapshotPreservesLiveClaudeCodeSessions(t *testing.T) {
+	withTempHome(t)
+	tmp := t.TempDir()
+	live := filepath.Join(tmp, "Live")
+	_ = os.MkdirAll(filepath.Join(live, "claude-code-sessions", "project", "session"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "local-agent-mode-sessions", "project"), 0755)
+	_ = os.WriteFile(filepath.Join(live, "config.json"), []byte("live"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json"), []byte("desktop session"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json"), []byte("agent session"), 0644)
+
+	target := newUserdataTarget(live)
+	targetID := "mock"
+	adp := &ElectronUserdataAdapter{}
+	if err := adp.ensureLiveSymlink(target, targetID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := filepath.Join(profilesDir(t), targetID, "personal")
+	if err := os.MkdirAll(snapshot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshot, "config.json"), []byte("snapshot"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeElectronUserdataProfileMarker(t, snapshot, target.SymlinkTarget)
+
+	if err := adp.Load(target, targetID, "personal"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(live, "config.json")); string(got) != "snapshot" {
+		t.Fatalf("expected auth/session config from snapshot, got %q", got)
+	}
+	if got, err := os.ReadFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json")); err != nil || string(got) != "desktop session" {
+		t.Fatalf("expected live Claude Code Desktop session to survive old snapshot load, data=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json")); err != nil || string(got) != "agent session" {
+		t.Fatalf("expected live local agent session to survive old snapshot load, data=%q err=%v", got, err)
 	}
 }
 
@@ -412,10 +457,14 @@ func TestElectronUserdataAdapter_ClearSessionPreservesSharedData(t *testing.T) {
 	tmp := t.TempDir()
 	live := filepath.Join(tmp, "Live")
 	_ = os.MkdirAll(filepath.Join(live, "Local Storage", "leveldb"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "claude-code-sessions", "project", "session"), 0755)
+	_ = os.MkdirAll(filepath.Join(live, "local-agent-mode-sessions", "project"), 0755)
 	_ = os.MkdirAll(filepath.Join(live, "vm_bundles"), 0755)
 	_ = os.WriteFile(filepath.Join(live, "config.json"), []byte("token"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "Cookies"), []byte("cookies"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "Local Storage", "leveldb", "000001.log"), []byte("local"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json"), []byte("desktop session"), 0644)
+	_ = os.WriteFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json"), []byte("agent session"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "claude_desktop_config.json"), []byte("mcp"), 0644)
 	_ = os.WriteFile(filepath.Join(live, "vm_bundles", "vm.img"), []byte("heavy"), 0644)
 
@@ -433,6 +482,12 @@ func TestElectronUserdataAdapter_ClearSessionPreservesSharedData(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(live, "Local Storage")); !os.IsNotExist(err) {
 		t.Fatalf("expected Local Storage to be cleared, got %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(live, "claude-code-sessions", "project", "session", "local_123.json")); err != nil || string(data) != "desktop session" {
+		t.Fatalf("expected Claude Code Desktop sessions to remain, data=%q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(live, "local-agent-mode-sessions", "project", "env.json")); err != nil || string(data) != "agent session" {
+		t.Fatalf("expected local agent sessions to remain, data=%q err=%v", data, err)
 	}
 	if data, err := os.ReadFile(filepath.Join(live, "claude_desktop_config.json")); err != nil || string(data) != "mcp" {
 		t.Fatalf("expected shared desktop config to remain, data=%q err=%v", data, err)
@@ -534,6 +589,23 @@ func profilesDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+func writeElectronUserdataProfileMarker(t *testing.T, snapshotDir, symlinkPath string) {
+	t.Helper()
+	meta := electronUserdataProfile{
+		Kind:        electronUserdataProfileKind,
+		Source:      symlinkPath,
+		SymlinkPath: symlinkPath,
+		VibeSwap:    "vibeswap electron_userdata",
+	}
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshotDir, electronUserdataProfileFile), data, 0600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // writeFakeCookiesDB creates a Chromium-shaped Cookies SQLite database with
