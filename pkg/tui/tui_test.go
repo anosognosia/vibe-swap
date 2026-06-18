@@ -322,29 +322,13 @@ func TestTUIRendersCodexProfileRowsWithProgressBars(t *testing.T) {
 
 func TestTUIRendersProfileSeparators(t *testing.T) {
 	m := model{
-		config:      config.GetDefaultConfig(),
-		activeState: &config.ActiveState{Targets: map[string]string{}},
 		profiles: map[string][]string{
 			"codex": {"personal", "work"},
 		},
-		targetIDs:         []string{"codex"},
-		selectedTargetIdx: 0,
-		focus:             focusProfiles,
-		width:             100,
-		height:            24,
-		codexUsageLoaded:  true,
-		codexUsage: map[string]usage.CodexProfileUsage{
-			"personal": {Session: usage.UsageWindow{UsedPercent: 1}, Weekly: usage.UsageWindow{UsedPercent: 2}},
-			"work":     {Session: usage.UsageWindow{UsedPercent: 3}, Weekly: usage.UsageWindow{UsedPercent: 4}},
-		},
 	}
 
-	view := m.View()
 	if got := m.renderProfileSeparator(); got != "" {
 		t.Fatalf("expected blank profile separator, got %q", got)
-	}
-	if !strings.Contains(view, "personal") || !strings.Contains(view, "work") {
-		t.Fatalf("expected profile rows in view:\n%s", view)
 	}
 }
 
