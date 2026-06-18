@@ -1541,6 +1541,9 @@ func shortUsageError(message string) string {
 	if strings.Contains(message, "access token expired") {
 		return "token expired"
 	}
+	if strings.Contains(strings.ToLower(message), "rate limit") {
+		return "rate limited"
+	}
 	if strings.Contains(message, "401") || strings.Contains(strings.ToLower(message), "unauthorized") {
 		return "sign in again"
 	}

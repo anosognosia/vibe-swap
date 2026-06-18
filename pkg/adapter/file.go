@@ -188,6 +188,14 @@ func (f *FileAdapter) IsInstalled(target config.Target) bool {
 	return err == nil
 }
 
+func (f *FileAdapter) RunningProcesses(target config.Target) []string {
+	return (&ElectronAdapter{}).runningProcesses(target)
+}
+
+func (f *FileAdapter) CloseProcesses(target config.Target) ([]string, error) {
+	return (&ElectronAdapter{}).CloseProcesses(target)
+}
+
 func (f *FileAdapter) readKeychainValue(target config.Target) (*KeychainValue, error) {
 	account := target.Account
 	if account == "" {

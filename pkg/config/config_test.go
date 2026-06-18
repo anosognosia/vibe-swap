@@ -12,6 +12,9 @@ func TestDefaultConfigDoesNotIncludeDeprecatedDesktopTargets(t *testing.T) {
 	if _, ok := defaults.Targets["claude_desktop_oauth"]; !ok {
 		t.Fatalf("expected Claude Desktop OAuth target in default config")
 	}
+	if got := defaults.Targets["codex"].AppName; got != "Codex" {
+		t.Fatalf("expected Codex app guard, got %q", got)
+	}
 }
 
 func TestNormalizeConfigRemovesDeprecatedDesktopTargets(t *testing.T) {
@@ -36,5 +39,22 @@ func TestNormalizeConfigRemovesDeprecatedDesktopTargets(t *testing.T) {
 	}
 	if _, ok := cfg.Targets["claude_desktop_oauth"]; !ok {
 		t.Fatalf("expected normalizeConfig to add Claude Desktop OAuth target")
+	}
+}
+
+func TestNormalizeConfigAddsCodexAppGuard(t *testing.T) {
+	cfg := &Config{Targets: map[string]Target{
+		"codex": {
+			Name: "Codex CLI/Desktop",
+			Type: TypeFile,
+			Path: "~/.codex/auth.json",
+		},
+	}}
+
+	if !normalizeConfig(cfg) {
+		t.Fatalf("expected normalizeConfig to add Codex app guard")
+	}
+	if got := cfg.Targets["codex"].AppName; got != "Codex" {
+		t.Fatalf("expected Codex app guard, got %q", got)
 	}
 }

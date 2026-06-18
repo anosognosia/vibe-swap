@@ -66,6 +66,7 @@ printf '%s\n' 'Current week (all models): 34% used'
 }
 
 func TestClaudeFetcherPrefersOAuthUsage(t *testing.T) {
+	resetClaudeOAuthUsageRateLimitForTest(t)
 	tmpDir := t.TempDir()
 	profilesRoot := filepath.Join(tmpDir, "profiles")
 	profileDir := filepath.Join(profilesRoot, "personal")
@@ -103,6 +104,43 @@ func TestClaudeFetcherPrefersOAuthUsage(t *testing.T) {
 	}
 }
 
+func TestClaudeFetcherBacksOffAfterOAuthRateLimit(t *testing.T) {
+	resetClaudeOAuthUsageRateLimitForTest(t)
+	tmpDir := t.TempDir()
+	profilesRoot := filepath.Join(tmpDir, "profiles")
+	for _, name := range []string{"personal", "work"} {
+		profileDir := filepath.Join(profilesRoot, name)
+		if err := os.MkdirAll(profileDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		writeClaudeKeychain(t, profileDir, "access-token-"+name)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, `{"error":{"type":"rate_limit_error"}}`, http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	fetcher := ClaudeFetcher{
+		Binary:       filepath.Join(tmpDir, "missing-claude"),
+		ProfilesRoot: profilesRoot,
+		Client:       server.Client(),
+		OAuthURL:     server.URL,
+		Timeout:      2 * time.Second,
+	}
+	first := fetcher.FetchProfile(context.Background(), "personal")
+	second := fetcher.FetchProfile(context.Background(), "work")
+	if first.Error != "usage rate limited" || second.Error != "usage rate limited" {
+		t.Fatalf("expected rate limited errors, got %#v and %#v", first, second)
+	}
+	if requests != 1 {
+		t.Fatalf("expected one request before cooldown, got %d", requests)
+	}
+}
+
 func TestClaudeWindowsFromOAuthIncludesExtraUsage(t *testing.T) {
 	extra := 79.2
 	response := claudeOAuthUsageResponse{
@@ -116,6 +154,33 @@ func TestClaudeWindowsFromOAuthIncludesExtraUsage(t *testing.T) {
 	}
 	if windows[2].Label != "extra" || windows[2].UsedPercent != 79 {
 		t.Fatalf("unexpected extra window: %#v", windows[2])
+	}
+}
+
+func TestClaudeWindowsFromOAuthIncludesAlternateCodexBarWindows(t *testing.T) {
+	response := claudeOAuthUsageResponse{
+		SevenDayOAuthApps:      &claudeOAuthUsageWindow{Utilization: floatPtr(18)},
+		SevenDayClaudeRoutines: &claudeOAuthUsageWindow{Utilization: floatPtr(23)},
+		SevenDayCowork:         &claudeOAuthUsageWindow{Utilization: floatPtr(31)},
+		IguanaNecktie:          &claudeOAuthUsageWindow{Utilization: floatPtr(47)},
+	}
+	windows := claudeWindowsFromOAuth(response)
+	want := []struct {
+		label string
+		used  int
+	}{
+		{"weekly", 18},
+		{"routine", 23},
+		{"cowork", 31},
+		{"iguana", 47},
+	}
+	if len(windows) != len(want) {
+		t.Fatalf("expected %d windows, got %#v", len(want), windows)
+	}
+	for i := range want {
+		if windows[i].Label != want[i].label || windows[i].UsedPercent != want[i].used {
+			t.Fatalf("window %d = %#v, want %#v", i, windows[i], want[i])
+		}
 	}
 }
 
@@ -267,6 +332,12 @@ func TestClaudeFetcherUsesDesktopWebSessionCookie(t *testing.T) {
 
 func floatPtr(value float64) *float64 {
 	return &value
+}
+
+func resetClaudeOAuthUsageRateLimitForTest(t *testing.T) {
+	t.Helper()
+	clearClaudeOAuthUsageRateLimit()
+	t.Cleanup(clearClaudeOAuthUsageRateLimit)
 }
 
 func writeClaudeKeychain(t *testing.T, profileDir, accessToken string) {

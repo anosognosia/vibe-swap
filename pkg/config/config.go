@@ -138,9 +138,10 @@ func GetDefaultConfig() *Config {
 	return &Config{
 		Targets: map[string]Target{
 			"codex": {
-				Name: "Codex CLI/Desktop",
-				Type: TypeFile,
-				Path: "~/.codex/auth.json",
+				Name:    "Codex CLI/Desktop",
+				Type:    TypeFile,
+				Path:    "~/.codex/auth.json",
+				AppName: "Codex",
 			},
 			"claude_cli": {
 				Name:    "Claude Code CLI",
@@ -202,8 +203,16 @@ func normalizeConfig(cfg *Config) bool {
 
 		switch id {
 		case "codex":
+			targetChanged := false
 			if current.Name == "Codex CLI" || current.Name == "" {
 				current.Name = target.Name
+				targetChanged = true
+			}
+			if current.AppName == "" {
+				current.AppName = target.AppName
+				targetChanged = true
+			}
+			if targetChanged {
 				cfg.Targets[id] = current
 				changed = true
 			}

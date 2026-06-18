@@ -244,10 +244,8 @@ func SwitchProfile(targetID, profileName string) error {
 		return err
 	}
 
-	if adp.IsInstalled(target) {
-		if err := ensureDesktopAppNotRunning(target, adp, "switch"); err != nil {
-			return err
-		}
+	if err := ensureDesktopAppNotRunning(target, adp, "switch"); err != nil {
+		return err
 	}
 	if err := ensureClaudeSafetyBackup(targetID, "switch"); err != nil {
 		return err
@@ -424,11 +422,15 @@ func SwitchAllTargets(profileName string) error {
 			continue
 		}
 
-		if !adp.IsInstalled(target) {
+		if !profileNameExists(profiles[targetID], profileName) {
 			continue
 		}
 
-		if !profileNameExists(profiles[targetID], profileName) {
+		if err := ensureDesktopAppNotRunning(target, adp, "switch"); err != nil {
+			return err
+		}
+
+		if !adp.IsInstalled(target) {
 			continue
 		}
 
@@ -439,11 +441,6 @@ func SwitchAllTargets(profileName string) error {
 		return fmt.Errorf("no targets have a profile named %q to switch to", profileName)
 	}
 
-	for _, candidate := range candidates {
-		if err := ensureDesktopAppNotRunning(candidate.target, candidate.adp, "switch"); err != nil {
-			return err
-		}
-	}
 	for _, candidate := range candidates {
 		if err := ensureClaudeSafetyBackup(candidate.targetID, "profile switch"); err != nil {
 			return err

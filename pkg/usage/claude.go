@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anosognosia/vibe-swap/pkg/config"
@@ -69,11 +70,20 @@ type claudeOAuthCredentials struct {
 }
 
 type claudeOAuthUsageResponse struct {
-	FiveHour       *claudeOAuthUsageWindow `json:"five_hour"`
-	SevenDay       *claudeOAuthUsageWindow `json:"seven_day"`
-	SevenDaySonnet *claudeOAuthUsageWindow `json:"seven_day_sonnet"`
-	SevenDayOpus   *claudeOAuthUsageWindow `json:"seven_day_opus"`
-	ExtraUsage     *claudeOAuthUsageWindow `json:"extra_usage"`
+	FiveHour               *claudeOAuthUsageWindow `json:"five_hour"`
+	SevenDay               *claudeOAuthUsageWindow `json:"seven_day"`
+	SevenDayOAuthApps      *claudeOAuthUsageWindow `json:"seven_day_oauth_apps"`
+	SevenDaySonnet         *claudeOAuthUsageWindow `json:"seven_day_sonnet"`
+	SevenDayOpus           *claudeOAuthUsageWindow `json:"seven_day_opus"`
+	SevenDayRoutines       *claudeOAuthUsageWindow `json:"seven_day_routines"`
+	SevenDayClaudeRoutines *claudeOAuthUsageWindow `json:"seven_day_claude_routines"`
+	SevenDayCowork         *claudeOAuthUsageWindow `json:"seven_day_cowork"`
+	ClaudeRoutines         *claudeOAuthUsageWindow `json:"claude_routines"`
+	Routines               *claudeOAuthUsageWindow `json:"routines"`
+	Routine                *claudeOAuthUsageWindow `json:"routine"`
+	Cowork                 *claudeOAuthUsageWindow `json:"cowork"`
+	IguanaNecktie          *claudeOAuthUsageWindow `json:"iguana_necktie"`
+	ExtraUsage             *claudeOAuthUsageWindow `json:"extra_usage"`
 }
 
 type claudeOAuthUsageWindow struct {
@@ -99,6 +109,11 @@ type claudeCLIConfig struct {
 		OrganizationUUID string `json:"organizationUuid"`
 	} `json:"oauthAccount"`
 }
+
+var claudeOAuthRateLimit = struct {
+	sync.Mutex
+	until time.Time
+}{}
 
 func FetchClaudeProfileUsages(ctx context.Context, targetID string, profileNames []string) map[string]ClaudeProfileUsage {
 	fetcher := ClaudeFetcher{TargetID: targetID, Timeout: 8 * time.Second}
@@ -355,6 +370,10 @@ func (f ClaudeFetcher) fetchOAuthUsage(ctx context.Context, profileDir string) (
 	if err != nil || strings.TrimSpace(credentials.AccessToken) == "" {
 		return usage, false
 	}
+	if claudeOAuthUsageRateLimited(time.Now()) {
+		usage.Error = "usage rate limited"
+		return usage, true
+	}
 	client := f.Client
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}
@@ -381,9 +400,11 @@ func (f ClaudeFetcher) fetchOAuthUsage(ctx context.Context, profileDir string) (
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
+		clearClaudeOAuthUsageRateLimit()
 	case http.StatusUnauthorized:
 		return usage, false
 	case http.StatusTooManyRequests:
+		rememberClaudeOAuthUsageRateLimit(resp.Header.Get("Retry-After"), time.Now())
 		usage.Error = "usage rate limited"
 		return usage, true
 	default:
@@ -401,6 +422,32 @@ func (f ClaudeFetcher) fetchOAuthUsage(ctx context.Context, profileDir string) (
 		usage.Error = "usage unavailable"
 	}
 	return usage, true
+}
+
+func claudeOAuthUsageRateLimited(now time.Time) bool {
+	claudeOAuthRateLimit.Lock()
+	defer claudeOAuthRateLimit.Unlock()
+	return !claudeOAuthRateLimit.until.IsZero() && now.Before(claudeOAuthRateLimit.until)
+}
+
+func rememberClaudeOAuthUsageRateLimit(retryAfter string, now time.Time) {
+	until := now.Add(5 * time.Minute)
+	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds > 0 {
+		until = now.Add(time.Duration(seconds) * time.Second)
+	} else if parsed, err := http.ParseTime(strings.TrimSpace(retryAfter)); err == nil && parsed.After(now) {
+		until = parsed
+	}
+	claudeOAuthRateLimit.Lock()
+	if until.After(claudeOAuthRateLimit.until) {
+		claudeOAuthRateLimit.until = until
+	}
+	claudeOAuthRateLimit.Unlock()
+}
+
+func clearClaudeOAuthUsageRateLimit() {
+	claudeOAuthRateLimit.Lock()
+	claudeOAuthRateLimit.until = time.Time{}
+	claudeOAuthRateLimit.Unlock()
 }
 
 func readClaudeOAuthCredentials(profileDir string) (claudeOAuthCredentials, error) {
@@ -478,7 +525,7 @@ func claudeWindowsFromOAuth(response claudeOAuthUsageResponse) []NamedUsageWindo
 	if window, ok := claudeWindowFromOAuth("5h", response.FiveHour); ok {
 		windows = append(windows, window)
 	}
-	if window, ok := claudeWindowFromOAuth("weekly", response.SevenDay); ok {
+	if window, ok := claudeWindowFromOAuth("weekly", firstClaudeOAuthWindow(response.SevenDay, response.SevenDayOAuthApps)); ok {
 		windows = append(windows, window)
 	}
 	if window, ok := claudeWindowFromOAuth("sonnet", response.SevenDaySonnet); ok {
@@ -486,10 +533,34 @@ func claudeWindowsFromOAuth(response claudeOAuthUsageResponse) []NamedUsageWindo
 	} else if window, ok := claudeWindowFromOAuth("opus", response.SevenDayOpus); ok {
 		windows = append(windows, window)
 	}
+	if window, ok := claudeWindowFromOAuth("routine", firstClaudeOAuthWindow(
+		response.SevenDayRoutines,
+		response.SevenDayClaudeRoutines,
+		response.ClaudeRoutines,
+		response.Routines,
+		response.Routine,
+	)); ok {
+		windows = append(windows, window)
+	}
+	if window, ok := claudeWindowFromOAuth("cowork", firstClaudeOAuthWindow(response.SevenDayCowork, response.Cowork)); ok {
+		windows = append(windows, window)
+	}
+	if window, ok := claudeWindowFromOAuth("iguana", response.IguanaNecktie); ok {
+		windows = append(windows, window)
+	}
 	if window, ok := claudeWindowFromOAuth("extra", response.ExtraUsage); ok {
 		windows = append(windows, window)
 	}
 	return windows
+}
+
+func firstClaudeOAuthWindow(windows ...*claudeOAuthUsageWindow) *claudeOAuthUsageWindow {
+	for _, window := range windows {
+		if window != nil {
+			return window
+		}
+	}
+	return nil
 }
 
 func claudeWindowFromOAuth(label string, window *claudeOAuthUsageWindow) (NamedUsageWindow, bool) {

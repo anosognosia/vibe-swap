@@ -207,7 +207,8 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
     "codex": {
       "name": "Codex CLI/Desktop",
       "type": "file",
-      "path": "~/.codex/auth.json"
+      "path": "~/.codex/auth.json",
+      "app_name": "Codex"
     },
     "claude_cli": {
       "name": "Claude Code CLI",
@@ -252,7 +253,7 @@ VibeSwap is fully extensible. You can customize targets in `~/.config/vibeswap/c
 
 ### Notes on Claude Code, Codex Desktop, Claude Desktop, and agy
 
-Codex Desktop appears to follow the same account as the Codex CLI on current macOS builds. VibeSwap therefore exposes one `codex` target named `Codex CLI/Desktop`, backed by `~/.codex/auth.json`, instead of a separate fragile Electron-state target for Codex Desktop. To switch Codex Desktop, switch the `codex` profile, fully quit Codex Desktop if it is already running, then open it again.
+Codex Desktop appears to follow the same account as the Codex CLI on current macOS builds. VibeSwap therefore exposes one `codex` target named `Codex CLI/Desktop`, backed by `~/.codex/auth.json`, instead of a separate fragile Electron-state target for Codex Desktop. VibeSwap does not move `~/.codex/sessions`, `~/.codex/history`, or Codex Desktop's task/session cache. To switch Codex Desktop, fully quit Codex Desktop, switch the `codex` profile, then open Codex Desktop again.
 
 Claude Code uses `CLAUDE_CONFIG_DIR` for profile-specific local state such as settings, cache, projects, and history. On macOS, Claude Code reads OAuth credentials from the live Keychain service `Claude Code-credentials` under the current macOS username account, so VibeSwap stores a credential snapshot in each profile and writes the selected snapshot back to that live Keychain item when switching. This should work across other macOS users and computers because VibeSwap resolves the Keychain account from the current `$USER` environment variable instead of hard-coding a local username.
 
@@ -262,7 +263,7 @@ Antigravity/agy on macOS can authenticate through the `gemini` Keychain service 
 
 Claude Desktop account switching is exposed only through the `claude_desktop_oauth` target documented above. An older experimental `claude_desktop` target is no longer included in the default config because it did not switch official Claude web-login accounts and created a misleading extra menu item. Existing configs are normalized to remove that deprecated target.
 
-For guarded desktop targets such as Claude Desktop OAuth, VibeSwap refuses to save, switch, or clear a live session while the desktop app is running. Quit the app completely first, then retry the action. The TUI shows this as a toast and does not attempt the swap.
+For guarded desktop targets such as Codex CLI/Desktop and Claude Desktop OAuth, VibeSwap refuses to save, switch, or clear a live session while the desktop app is running. Quit the app completely first, then retry the action. The TUI shows this as a toast and does not attempt the swap. The Codex guard checks the macOS `Codex` app and does not target `codex` CLI sessions.
 
 ## Usage
 

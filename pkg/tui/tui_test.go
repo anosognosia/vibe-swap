@@ -434,6 +434,12 @@ func TestTUIUsagePercentColumnsAlign(t *testing.T) {
 	}
 }
 
+func TestShortUsageErrorShowsRateLimited(t *testing.T) {
+	if got := shortUsageError("usage rate limited"); got != "rate limited" {
+		t.Fatalf("expected rate limited label, got %q", got)
+	}
+}
+
 func TestTUIClaudeDesktopEmailFallsBackToCLIProfile(t *testing.T) {
 	m := model{
 		profiles: map[string][]string{
